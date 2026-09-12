@@ -1,0 +1,36 @@
+# Godot 4 generated files
+.godot/
+
+# Godot 3 legacy import cache
+.import/
+
+# Exported builds and packages
+exports/builds/
+*.exe
+*.apk
+*.aab
+*.pck
+*.zip
+
+# Logs and temporary files
+*.log
+tmp/
+temp/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE files
+.vscode/
+.idea/
+
+# Sensitive signing files
+*.keystore
+*.jks
+*.p12
+
+# Local scratch / test saves
+user://
+save_game.json
