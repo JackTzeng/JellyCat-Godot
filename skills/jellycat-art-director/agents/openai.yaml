@@ -1,0 +1,7 @@
+interface:
+  display_name: "JellyCat Art Director"
+  short_description: "JellyCat visual direction, asset briefs, image generation and visual QA"
+  default_prompt: "Use $jellycat-art-director to turn this JellyCat art request into a production-ready asset and validate it for Godot integration."
+
+policy:
+  allow_implicit_invocation: true
