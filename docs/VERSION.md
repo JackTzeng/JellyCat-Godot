@@ -10,6 +10,13 @@
 
 Do not mark as `Runtime Ready` until the full Godot Editor validation passes.
 
+## Automated Validation
+
+- Godot version: 4.2.1 stable
+- Result: `RUNTIME_ACCEPTANCE_OK checks=88`
+- Imported source commit: `2cbd847`
+- Manual graphical editor playthrough: pending
+
 ## Current Target
 
 Windows desktop prototype first.
