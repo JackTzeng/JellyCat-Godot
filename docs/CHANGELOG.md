@@ -6,12 +6,19 @@
 
 - Imported the existing Godot 4 runtime source, scenes, data tables, assets, export preset, and automated acceptance tooling into GitHub.
 - Preserved the planning documents already established in the repository.
+- Added an Android APK export preset and GUI-free PowerShell build entrypoint.
+
+### Changed
+
+- Android APK is now the primary target; Windows packaging is deferred.
+- Godot GUI/editor validation is no longer a release gate.
+- APK acceptance now requires headless tests, CLI export, ADB installation, and physical-device smoke testing.
 
 ### Verification
 
 - Godot 4.2.1 headless acceptance passed: `RUNTIME_ACCEPTANCE_OK checks=88`.
 - Verified all 72 imported file blobs against the local source commit with zero SHA mismatches.
-- Graphical editor playthrough and visual QA remain pending.
+- Physical Android device playthrough and visual QA remain pending.
 
 ## v0.1.0 Aquarium Core Prototype
 

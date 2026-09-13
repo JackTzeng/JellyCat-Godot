@@ -52,7 +52,7 @@
 - [ ] Sick state has gentle visual difference
 - [ ] Animation does not modify save data
 
-## v0.1.3 Windows Build Checklist
+## P3 Deferred Windows Build Checklist
 
 - [ ] Export preset configured
 - [ ] Build launches
@@ -65,15 +65,23 @@
 - [ ] ZIP package created
 - [ ] GitHub Release created
 
-## Android APK Future Checklist
+## P0 Android APK Checklist
 
-- [ ] Landscape mode selected
+- [x] Matching Android export template installed
+- [x] Android APK export preset configured
+- [x] Package name selected: `com.jacktzeng.jellycat`
+- [x] GUI-free CLI build entrypoint added
+- [ ] OpenJDK 17 installed
+- [ ] Required Android SDK packages installed
+- [ ] Headless 88-check acceptance passes immediately before export
+- [ ] New debug APK exported successfully
+- [ ] Landscape mode verified on device
 - [ ] Touch targets reviewed
+- [ ] Safe areas reviewed
 - [ ] Runtime Log hidden by default
-- [ ] Android export template installed
-- [ ] Package name selected
 - [ ] App icon ready
 - [ ] Splash screen ready
 - [ ] Signing key prepared outside repo
-- [ ] APK installs on device
-- [ ] Save/load verified on device
+- [ ] APK installs through ADB on a physical device
+- [ ] Core gameplay smoke test passes by touch
+- [ ] Save/load survives close/reopen on device

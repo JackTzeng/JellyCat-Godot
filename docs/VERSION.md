@@ -6,59 +6,49 @@
 
 ## Runtime Status
 
-`Prototype`
+`APK Integration`
 
-Do not mark as `Runtime Ready` until the full Godot Editor validation passes.
+Do not mark as `APK Ready` until the CLI export and physical-device acceptance gate passes.
 
 ## Automated Validation
 
 - Godot version: 4.2.1 stable
-- Result: `RUNTIME_ACCEPTANCE_OK checks=88`
+- Current headless result: `RUNTIME_ACCEPTANCE_OK checks=88`
 - Imported source commit: `2cbd847`
-- Manual graphical editor playthrough: pending
+- Godot GUI/editor validation: intentionally removed from the release gate
 
 ## Current Target
 
-Windows desktop prototype first.
+Android debug APK built entirely through CLI/headless tooling.
 
-## Future Target
+## Deferred Target
 
-Android APK after:
-
-1. Aquarium UI layout is stable.
-2. Main JellyCat motion is stable.
-3. Core art assets are integrated.
-4. Touch UX is verified.
-5. Runtime Log is hidden or developer-gated by default.
+Windows desktop packaging is deferred and is not a dependency of Android development.
 
 ## Version Plan
 
 | Version | Status | Goal |
 |---|---|---|
-| v0.1.0 | Active | Runtime-ready aquarium core prototype |
+| v0.1.0 | Active | Headless-validated aquarium core prototype |
 | v0.1.1 | Planned | Main JellyCat motion patch |
 | v0.1.2 | Planned | Art prototype integration |
-| v0.1.3 | Planned | Windows export package |
-| v0.2.0 | Planned | Android APK preparation |
+| v0.2.0 | Active | Android APK CLI pipeline and device acceptance |
 | v0.3.0 | Planned | Resonance / multi-JellyCat long-term system |
 
-## v0.1.0 Runtime-Ready Gate
+## APK-Ready Gate
 
-The version may be marked runtime-ready only after:
+The Android build may be marked APK-ready only after:
 
-- Boot flow passes
-- New Game passes
-- Egg Select passes
-- Hatch 10 taps passes
-- Aquarium loads
+- Headless boot and gameplay acceptance passes
+- Debug APK exports from `tools/build_android.ps1`
+- APK installs on a physical Android device
+- New Game / Egg Select / Hatch 10 taps pass by touch
+- Aquarium loads in landscape orientation
 - Feed / Cookie / Touch / Clean / Medicine pass
 - Daily Food passes
 - Bubble Coin spawn / pickup / auto-collect pass
-- Shop buy passes
-- Not enough item / coin does not crash
+- Shop buy and insufficient-resource cases do not crash
 - Evolution and Stage 5 max-stage pass
-- Save / Load pass
-- Reset Save pass
-- Runtime Log does not spam
-- No parser error
-- No runtime error
+- Save / Load and Reset Save pass on Android
+- Runtime Log is hidden or developer-gated by default
+- No parser, export, install, or runtime error

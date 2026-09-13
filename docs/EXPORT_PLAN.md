@@ -1,69 +1,72 @@
-# Export Plan
+# Android APK CLI Plan
 
-## Current Recommendation
+## Product Direction
 
-The first app target should be a Windows desktop export.
+Android APK is the primary application target. Development, validation, and export must not depend on the Godot graphical editor.
 
-Android APK should be treated as future work after UI layout, touch UX, and art prototype stabilization.
+The supported workflow is:
 
-## Windows Export Plan
+1. Edit project text files and assets directly.
+2. Run Godot in `--headless` mode.
+3. Run the automated runtime acceptance scene.
+4. Export a debug APK from the command line.
+5. Install and test the APK on a physical Android device with ADB.
 
-### Prerequisites
+Windows export is deferred and is not a release gate.
 
-- Godot 4 export templates installed
-- Local project opens without parser error
-- Runtime-ready checklist passes in Godot Editor
+## Toolchain Baseline
 
-### Build Steps
+- Godot 4.2.1 stable console executable
+- Matching Godot 4.2.1 Android export templates
+- OpenJDK 17
+- Android SDK Platform-Tools 30.0.5 or later
+- Android SDK Build-Tools 33.0.2
+- Android SDK Platform 33
+- Android SDK Command-line Tools latest
+- CMake 3.10.2.4988404
+- Android NDK 23.2.8568313
 
-1. Open project in Godot 4.
-2. Install matching export templates.
-3. Create a Windows Desktop export preset.
-4. Export the build to a local build folder.
-5. Verify whether the output requires a `.pck` beside the `.exe`.
-6. Launch exported build.
-7. Test save/load.
-8. Zip the build folder.
-9. Attach the ZIP to a GitHub Release.
+## Debug APK Build
 
-### Windows Build Checklist
+From PowerShell:
 
-- [ ] Build launches
-- [ ] Window size is correct
-- [ ] Aquarium scene displays correctly
-- [ ] Controls work
-- [ ] Save file writes correctly
-- [ ] Reopening build loads save
-- [ ] No missing assets
-- [ ] No crash on close
+```powershell
+.\tools\build_android.ps1
+```
 
-## Android APK Future Plan
+If the tools are not in their default locations:
 
-Android is not the v0.1.0 target.
+```powershell
+.\tools\build_android.ps1 `
+  -GodotPath "C:\path\to\Godot_console.exe" `
+  -JavaSdkPath "C:\path\to\jdk-17" `
+  -AndroidSdkPath "C:\path\to\Android\Sdk"
+```
 
-### Required Preparation
+Expected local artifact:
 
-- Landscape layout decision
-- Touch-friendly button sizes
-- Safe-area review
-- Runtime Log hidden by default
-- Android export template installed
-- Package name decision
-- App icon
-- Splash screen
-- Save path verification
-- APK signing key stored outside the repo
-- Device test on real Android hardware
+```text
+exports/builds/android/JellyCat-debug.apk
+```
 
-### Android Risks
+The build script uses an isolated Godot CLI home under `exports/.godot-cli-home`, configures Android paths without opening the GUI, runs the headless acceptance suite, generates a local debug keystore when needed, and exports the APK.
 
-- Current 1672 x 941 layout is desktop-first.
-- UI may need substantial repositioning for phones.
-- Debug Runtime Log is not appropriate as a default player-facing panel.
-- APK signing must not be committed to GitHub.
+## APK Acceptance Gate
 
-## Repository Policy
+- [ ] `RUNTIME_ACCEPTANCE_OK checks=88`
+- [ ] Headless export returns exit code 0
+- [ ] APK exists at the expected output path
+- [ ] `adb install -r` succeeds on a physical device
+- [ ] App boots into the title flow
+- [ ] Touch targets respond in landscape orientation
+- [ ] Aquarium core loop works
+- [ ] Save data survives closing and reopening the app
+- [ ] No missing assets or crash on exit
 
-Do not commit exported builds, signing keys, or generated caches.
+## Signing and Repository Policy
 
-Use GitHub Releases for packaged builds.
+- Package ID: `com.jacktzeng.jellycat`
+- Debug builds use the local Android debug keystore.
+- Release signing keys and passwords must stay outside the repository.
+- Do not commit APK, AAB, generated caches, or signing credentials.
+- Publish distributable builds through GitHub Releases after device acceptance.
