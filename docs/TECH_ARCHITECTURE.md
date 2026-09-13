@@ -5,8 +5,9 @@
 - Engine: Godot 4.x
 - Language: GDScript
 - Save: local JSON
-- Current target: Windows desktop prototype
-- Future target: Android APK after UI and art stabilization
+- Current target: Android APK
+- Workflow: text/source editing, headless checks, CLI export, physical-device acceptance
+- Deferred target: Windows packaging
 
 ## Recommended Structure
 
@@ -149,7 +150,8 @@ Animation state must not be persisted.
 
 ## Export Policy
 
-- First app target: Windows desktop build
-- Android APK is future work
+- First app target: Android debug APK
+- Godot GUI/editor is not required for development or release validation
+- Windows packaging is deferred until after APK-ready acceptance
 - Exported builds should be attached to GitHub Releases, not committed
 - Signing keys must never be committed

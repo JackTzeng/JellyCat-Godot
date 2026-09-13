@@ -1,6 +1,18 @@
 # TODO
 
-## P0 - v0.1.0 Runtime Ready
+## P0 - Android APK CLI Pipeline
+
+- [x] Install matching Godot 4.2.1 Android export templates
+- [x] Add Android APK export preset
+- [x] Add a GUI-free PowerShell build entrypoint
+- [ ] Install OpenJDK 17
+- [ ] Install the Godot 4.2 Android SDK package baseline
+- [ ] Generate local debug keystore outside the repo
+- [ ] Export the first debug APK
+- [ ] Install APK with ADB on a physical device
+- [ ] Complete Android touch and save/load smoke test
+
+## P0 - Runtime Safety
 
 - [ ] Runtime Log Cleanup / Action Debounce
 - [ ] Feed failure should not log `Aquarium UI refreshed`
@@ -12,16 +24,18 @@
 - [ ] Repeated no-op and error logs should be throttled
 - [ ] Touch should not spam logs
 - [ ] Stage 5 max-stage behavior should not crash
-- [ ] Save / Load final QA
-- [ ] Reset Save final QA
+- [ ] Save / Load final QA on Android
+- [ ] Reset Save final QA on Android
 
-## P1 - v0.1.0 UI Layout Freeze
+## P1 - Mobile UI and Touch
 
-- [ ] Status Panel should move to left top
-- [ ] Inventory Panel should move to right top or right middle
-- [ ] Runtime Log should remain left bottom during development
-- [ ] Action Buttons should remain right bottom
-- [ ] Center should be reserved for the main JellyCat
+- [ ] Freeze landscape-only orientation
+- [ ] Verify touch target sizes
+- [ ] Verify safe areas and common aspect ratios
+- [ ] Hide Runtime Log by default
+- [ ] Keep main JellyCat visible in the center
+- [ ] Prepare Android launcher and adaptive icons
+- [ ] Prepare splash screen
 
 ## P1 - v0.1.1 Motion
 
@@ -46,22 +60,6 @@
 - [ ] Generate / import UI assets
 - [ ] Generate / import aquarium background and overlays
 
-## P2 - v0.1.3 Export
+## P3 - Deferred Windows Packaging
 
-- [ ] Install Godot export templates
-- [ ] Configure Windows export preset
-- [ ] Export Windows desktop build
-- [ ] Test build launch
-- [ ] Test save/load in exported build
-- [ ] Attach ZIP to GitHub Release
-
-## P2 - v0.2.0 Android Preparation
-
-- [ ] Decide landscape-only orientation
-- [ ] Verify touch target sizes
-- [ ] Verify safe areas
-- [ ] Hide Runtime Log by default
-- [ ] Configure Android package name
-- [ ] Prepare app icon and splash screen
-- [ ] Prepare signing key outside repo
-- [ ] Device test APK
+- [ ] Reassess Windows export only after APK-ready acceptance

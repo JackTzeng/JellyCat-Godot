@@ -6,6 +6,7 @@
 
 # Exported builds and packages
 exports/builds/
+exports/.godot-cli-home/
 *.exe
 *.apk
 *.aab

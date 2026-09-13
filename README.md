@@ -27,8 +27,9 @@ The current prototype focuses on one main JellyCat in an aquarium:
 - Engine: Godot 4.x
 - Language: GDScript
 - Save model: local JSON save
-- Target: desktop-first prototype
-- Future target: Android APK after UI, touch UX, and art prototype stabilize
+- Primary target: Android APK
+- Workflow: text/code edits, headless validation, CLI export, and physical-device testing
+- Godot GUI/editor is not part of the required development or release workflow
 
 ## Development Policy
 
@@ -46,15 +47,21 @@ The current prototype focuses on one main JellyCat in an aquarium:
 C:\Users\user\Documents\遊戲製作\JellyCat
 ```
 
-## How to Run
+## How to Validate
 
-1. Open the local project folder in Godot 4.
-2. Run the default main scene from `project.godot`.
-3. Preferred boot scene:
+Run the automated acceptance scene with the Godot 4.2.1 console executable:
 
-```text
-res://scenes/boot/boot.tscn
+```powershell
+& "C:\path\to\Godot_v4.2.1-stable_win64_console.exe" --headless --path . res://tools/runtime_acceptance_check.tscn
 ```
+
+Build a debug APK without opening the Godot editor:
+
+```powershell
+.\tools\build_android.ps1
+```
+
+See `docs/EXPORT_PLAN.md` for the required Android toolchain and device acceptance gate.
 
 ## Repository Notes
 
@@ -70,6 +77,5 @@ res://scenes/boot/boot.tscn
 | v0.1.0 | Runtime-ready aquarium core prototype |
 | v0.1.1 | Main JellyCat motion and aquarium life polish |
 | v0.1.2 | Art prototype integration |
-| v0.1.3 | Windows desktop export |
-| v0.2.0 | Android APK preparation |
+| v0.2.0 | Android APK CLI pipeline and device acceptance |
 | v0.3.0 | Long-term resonance / multi-JellyCat systems |

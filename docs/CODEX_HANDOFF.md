@@ -2,96 +2,44 @@
 
 ## Role
 
-You are continuing the JellyCat / 水母喵 Godot 4 project.
+Continue JellyCat / 水母喵 as its game architect and PM. Preserve the existing Godot 4/GDScript architecture while making Android APK the primary delivery target.
 
-This is not a redesign. Continue the existing architecture and stabilize the current v0.1.0 aquarium core prototype.
+## Authority
 
-## Repository
+- Repository: https://github.com/JackTzeng/JellyCat-Godot
+- Notion Project Hub: https://app.notion.com/p/3d9f53bbd3b281228b16f4e99764ee76
+- Working clone: `C:\Users\user\Documents\遊戲製作\JellyCat-Godot-Repo`
 
-```text
-https://github.com/JackTzeng/JellyCat-Godot
-```
+## Current Direction
 
-## Local Working Directory
+- Do not use or require the Godot graphical editor.
+- Edit source and project configuration as text.
+- Validate through Godot 4.2.1 `--headless` commands.
+- Export Android debug APKs through `tools/build_android.ps1`.
+- Validate the APK on a physical Android device using ADB.
+- Defer Windows packaging until after APK-ready acceptance.
 
-```text
-C:\Users\user\Documents\遊戲製作\JellyCat
-```
+## Immediate Priority
 
-## Current Priority
-
-Do not add new gameplay until v0.1.0 runtime-ready is certified.
-
-Priority order:
-
-1. Runtime Log cleanup / action debounce
-2. No-op actions should not save
-3. Failed actions should not log `Aquarium UI refreshed`
-4. Stage 5 and SaveLoad final QA
-5. Aquarium side-panel UI layout freeze
-6. Main JellyCat motion patch
-7. Art asset spec and integration
-8. Windows export
-9. Android APK preparation
+1. Install OpenJDK 17 and the Godot 4.2 Android SDK package baseline.
+2. Export the first debug APK with package ID `com.jacktzeng.jellycat`.
+3. Install and smoke-test the APK on a physical Android device.
+4. Fix runtime log/no-op save behavior and Android-specific touch/layout issues.
+5. Integrate motion and art without destabilizing the mobile core loop.
 
 ## Hard Constraints
 
-Do not:
+- No ads, analytics, login, payments, or cloud dependency.
+- No new species, breeding, minigames, or true multi-pet save schema during runtime/APK closure.
+- Do not commit APK/AAB files, generated caches, signing keys, or credentials.
+- Runtime Log must be hidden or developer-gated in player builds.
+- A Godot GUI playthrough is not a release requirement.
 
-- Add new JellyCat species during runtime cleanup
-- Add true multi-pet save system
-- Add breeding / resonance systems
-- Add mini-games
-- Add ads
-- Add analytics
-- Add login
-- Add cloud service
-- Change viewport unless explicitly requested
-- Replace background during non-art tasks
-- Rewrite the whole project
-- Commit exported builds
-- Commit signing keys
+## Acceptance Authority
 
-## Current Known Runtime Problems
+An APK is ready only when:
 
-Observed Runtime Log symptoms:
-
-```text
-ACTION Feed food clicked
-ERROR Not enough item: food_basic
-INFO Aquarium UI refreshed
-```
-
-This pattern should be fixed. Failed/no-op actions should not save or write `Aquarium UI refreshed`.
-
-Repeated no-op/error logs should be throttled.
-
-## v0.1.1 Motion Direction
-
-Before adding many background JellyCats, make the current main JellyCat move:
-
-- idle floating
-- breathing / pulsing
-- subtle rotation
-- success reaction animations
-- sick idle difference
-
-## Notion Authority
-
-Project Hub:
-
-```text
-https://app.notion.com/p/3d9f53bbd3b281228b16f4e99764ee76
-```
-
-Development Backlog:
-
-```text
-https://app.notion.com/p/2d5affc30bce434d9a2a4b86a3231807
-```
-
-Art Asset Register:
-
-```text
-https://app.notion.com/p/7dee00a7dad945f28e4ad8d9effe7a83
-```
+- `RUNTIME_ACCEPTANCE_OK checks=88` passes headlessly.
+- A new APK is produced by the CLI build script.
+- ADB installation succeeds.
+- Touch, landscape layout, core aquarium loop, and Android save persistence pass on a physical device.
