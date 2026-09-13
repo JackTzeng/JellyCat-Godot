@@ -1,0 +1,27 @@
+{
+  "food_basic": {
+    "display_name": "基礎飼料",
+    "type": "food",
+    "price": 5,
+    "purchasable": true,
+    "hunger_add": 30,
+    "mood_add": 2,
+    "growth_exp_add": 5
+  },
+  "cookie_basic": {
+    "display_name": "喵喵餅乾",
+    "type": "cookie",
+    "price": 8,
+    "purchasable": true,
+    "hunger_add": 5,
+    "mood_add": 20,
+    "growth_exp_add": 3
+  },
+  "medicine_basic": {
+    "display_name": "基礎藥水",
+    "type": "medicine",
+    "price": 20,
+    "purchasable": true,
+    "heal": true
+  }
+}

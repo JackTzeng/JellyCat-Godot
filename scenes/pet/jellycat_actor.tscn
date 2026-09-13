@@ -1,0 +1,12 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/controllers/jellycat_controller.gd" id="1_actor"]
+[ext_resource type="Texture2D" path="res://assets/jellycats/normal_jellycat/stages/stage_1.png" id="2_stage1"]
+
+[node name="JellyCatActor" type="Node2D"]
+script = ExtResource("1_actor")
+
+[node name="Sprite" type="Sprite2D" parent="."]
+unique_name_in_owner = true
+texture = ExtResource("2_stage1")
+scale = Vector2(0.32, 0.32)

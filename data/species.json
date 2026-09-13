@@ -1,0 +1,13 @@
+{
+  "normal_jellycat": {
+    "display_name": "普通水母喵",
+    "max_stage": 5,
+    "default_hunger": 80,
+    "default_mood": 70,
+    "default_cleanliness": 100,
+    "hunger_decay_per_day": 15,
+    "mood_decay_per_day": 8,
+    "cleanliness_decay_per_day": 12,
+    "coin_rate": 1
+  }
+}

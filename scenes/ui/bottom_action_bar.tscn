@@ -1,0 +1,11 @@
+[gd_scene format=3]
+
+[node name="BottomActionBar" type="HBoxContainer"]
+
+[node name="FeedButton" type="Button" parent="."]
+layout_mode = 2
+text = "餵食"
+
+[node name="TouchButton" type="Button" parent="."]
+layout_mode = 2
+text = "摸摸"

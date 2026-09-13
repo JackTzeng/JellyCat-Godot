@@ -1,0 +1,24 @@
+{
+  "egg_required_clicks": 10,
+  "touch_cooldown_seconds": 0.5,
+  "touch_mood_add": 5,
+  "touch_growth_exp_add": 1,
+  "touch_growth_exp_cap": 20,
+  "touch_exp_reset_seconds": 600,
+  "cleanliness_after_clean": 100,
+  "max_hunger": 100,
+  "max_mood": 100,
+  "max_cleanliness": 100,
+  "passive_coin_interval_seconds": 30,
+  "passive_coin_mood_threshold": 70,
+  "passive_coin_amount": 1,
+  "coin_bubble_auto_collect_seconds": 15,
+  "max_coin_bubbles_on_screen": 10,
+  "offline_coin_cap_seconds": 14400,
+  "evolution_coin_bonus": {
+    "2": 20,
+    "3": 30,
+    "4": 50,
+    "5": 80
+  }
+}

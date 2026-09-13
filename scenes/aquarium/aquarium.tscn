@@ -1,0 +1,272 @@
+[gd_scene load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://scripts/controllers/aquarium_controller.gd" id="1_aqua"]
+[ext_resource type="PackedScene" path="res://scenes/pet/jellycat_actor.tscn" id="2_actor"]
+[ext_resource type="PackedScene" path="res://scenes/ui/runtime_log_panel.tscn" id="3_log"]
+[ext_resource type="Texture2D" path="res://assets/backgrounds/aquarium_tank.png" id="4_bg"]
+[ext_resource type="PackedScene" path="res://scenes/ui/shop_panel.tscn" id="5_shop"]
+
+[node name="Aquarium" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+script = ExtResource("1_aqua")
+
+[node name="Water" type="TextureRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+texture = ExtResource("4_bg")
+expand_mode = 1
+stretch_mode = 6
+
+[node name="CoinBubbleContainer" type="Control" parent="."]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 1
+
+[node name="StatusBackdrop" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_left = 24.0
+offset_top = 20.0
+offset_right = -1148.0
+offset_bottom = 320.0
+mouse_filter = 2
+color = Color(0.02, 0.05, 0.09, 0.45)
+
+[node name="TopPanel" type="VBoxContainer" parent="."]
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_left = 36.0
+offset_top = 32.0
+offset_right = -1160.0
+offset_bottom = 308.0
+theme_override_constants/separation = 2
+
+[node name="CoinLabel" type="Label" parent="TopPanel"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Bubble Coin: 0"
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 22
+
+[node name="StageLabel" type="Label" parent="TopPanel"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "JellyCat"
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 24
+
+[node name="HungerLabel" type="Label" parent="TopPanel"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Hunger: 0 / 100"
+horizontal_alignment = 1
+
+[node name="HungerBar" type="ProgressBar" parent="TopPanel"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(0, 10)
+max_value = 100.0
+show_percentage = false
+
+[node name="MoodLabel" type="Label" parent="TopPanel"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Mood: 0 / 100"
+horizontal_alignment = 1
+
+[node name="MoodBar" type="ProgressBar" parent="TopPanel"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(0, 10)
+max_value = 100.0
+show_percentage = false
+
+[node name="CleanlinessLabel" type="Label" parent="TopPanel"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Cleanliness: 0 / 100"
+horizontal_alignment = 1
+
+[node name="CleanBar" type="ProgressBar" parent="TopPanel"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(0, 10)
+max_value = 100.0
+show_percentage = false
+
+[node name="HealthLabel" type="Label" parent="TopPanel"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Health: healthy"
+horizontal_alignment = 1
+
+[node name="ExpLabel" type="Label" parent="TopPanel"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Growth EXP: 0"
+horizontal_alignment = 1
+
+[node name="TouchExpLabel" type="Label" parent="TopPanel"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Touch EXP: 0/20 | Ready"
+horizontal_alignment = 1
+
+[node name="EvolutionLabel" type="Label" parent="TopPanel"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Evolution: 0 / 0"
+horizontal_alignment = 1
+
+[node name="InventoryBackdrop" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_left = 1180.0
+offset_top = 28.0
+offset_right = -28.0
+offset_bottom = 180.0
+mouse_filter = 2
+color = Color(0.02, 0.05, 0.09, 0.45)
+
+[node name="InventoryLabel" type="Label" parent="."]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_left = 1200.0
+offset_top = 48.0
+offset_right = -48.0
+offset_bottom = 164.0
+text = "Food x0\nCookie x0\nMedicine x0"
+
+[node name="ActorAnchor" type="Node2D" parent="."]
+unique_name_in_owner = true
+position = Vector2(836, 470)
+
+[node name="JellyCatActor" parent="ActorAnchor" instance=ExtResource("2_actor")]
+unique_name_in_owner = true
+
+[node name="RuntimeLogPanel" parent="." instance=ExtResource("3_log")]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_left = 28.0
+offset_top = 590.0
+offset_right = -884.0
+offset_bottom = 900.0
+
+[node name="ShopPanel" parent="." instance=ExtResource("5_shop")]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_left = 28.0
+offset_top = 330.0
+offset_right = -1144.0
+offset_bottom = 570.0
+
+[node name="MessageLabel" type="Label" parent="."]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_left = 880.0
+offset_top = 532.0
+offset_right = -28.0
+offset_bottom = 574.0
+text = "Runtime log is visible below the aquarium."
+horizontal_alignment = 1
+
+[node name="ActionBackdrop" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 870.0
+offset_top = -342.0
+offset_right = -18.0
+offset_bottom = -18.0
+mouse_filter = 2
+color = Color(0.02, 0.05, 0.09, 0.35)
+
+[node name="ActionBar" type="GridContainer" parent="."]
+layout_mode = 1
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 880.0
+offset_top = -330.0
+offset_right = -28.0
+offset_bottom = -28.0
+columns = 2
+theme_override_constants/h_separation = 12
+theme_override_constants/v_separation = 12
+
+[node name="FeedButton" type="Button" parent="ActionBar"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(310, 50)
+text = "Feed"
+
+[node name="CookieButton" type="Button" parent="ActionBar"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(310, 50)
+text = "Cookie"
+
+[node name="TouchButton" type="Button" parent="ActionBar"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(310, 50)
+text = "Touch"
+
+[node name="CleanButton" type="Button" parent="ActionBar"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(310, 50)
+text = "Clean"
+
+[node name="MedicineButton" type="Button" parent="ActionBar"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(310, 50)
+text = "Medicine"
+
+[node name="EvolveButton" type="Button" parent="ActionBar"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(310, 50)
+text = "Evolve"
+
+[node name="ShopButton" type="Button" parent="ActionBar"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(310, 50)
+text = "Shop"
+
+[node name="DailyFoodButton" type="Button" parent="ActionBar"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(310, 50)
+text = "Daily Food"
+
+[node name="LogToggleButton" type="Button" parent="ActionBar"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(310, 50)
+text = "Hide Log"

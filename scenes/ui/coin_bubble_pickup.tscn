@@ -1,0 +1,10 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/controllers/coin_bubble_pickup.gd" id="1_coin"]
+
+[node name="CoinBubblePickup" type="Button"]
+custom_minimum_size = Vector2(72, 72)
+offset_right = 72.0
+offset_bottom = 72.0
+text = "+1"
+script = ExtResource("1_coin")

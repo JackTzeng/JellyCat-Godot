@@ -1,0 +1,74 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/debug/debug_panel.gd" id="1_debug"]
+
+[node name="DebugPanel" type="PanelContainer"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 24.0
+offset_top = 24.0
+offset_right = -24.0
+offset_bottom = -24.0
+script = ExtResource("1_debug")
+
+[node name="Main" type="VBoxContainer" parent="."]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="Title" type="Label" parent="Main"]
+layout_mode = 2
+text = "Debug Panel"
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 26
+
+[node name="InfoLabel" type="Label" parent="Main"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "debug"
+
+[node name="Buttons" type="GridContainer" parent="Main"]
+layout_mode = 2
+columns = 2
+theme_override_constants/h_separation = 8
+theme_override_constants/v_separation = 8
+
+[node name="HungerButton" type="Button" parent="Main/Buttons"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "+10 hunger"
+
+[node name="MoodButton" type="Button" parent="Main/Buttons"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "+10 mood"
+
+[node name="ExpButton" type="Button" parent="Main/Buttons"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "+100 growth_exp"
+
+[node name="CoinButton" type="Button" parent="Main/Buttons"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "+100 bubble_coin"
+
+[node name="EvolveButton" type="Button" parent="Main/Buttons"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "direct evolve"
+
+[node name="DayButton" type="Button" parent="Main/Buttons"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "simulate 1 day"
+
+[node name="WeekButton" type="Button" parent="Main/Buttons"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "simulate 7 days"
+
+[node name="ResetButton" type="Button" parent="Main/Buttons"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "reset save"
