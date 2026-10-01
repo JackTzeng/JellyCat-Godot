@@ -78,13 +78,16 @@ settings_path.write_text(
 )
 PY
 
+pending_output="${output_path%.apk}.pending.apk"
 mkdir -p "$(dirname -- "$output_path")"
-rm -f "$output_path" "$output_path.tmp"
+rm -f "$output_path" "$pending_output"
 "$godot_bin" --headless --editor --path "$project_root" --import
 "$godot_bin" --headless --path "$project_root" res://tools/runtime_acceptance_check.tscn
-"$godot_bin" --headless --path "$project_root" --export-debug "Android APK" "$output_path.tmp"
-test -s "$output_path.tmp"
-mv "$output_path.tmp" "$output_path"
-"$sdk_root/build-tools/33.0.2/aapt" dump badging "$output_path" | grep -q "package: name='com.jacktzeng.jellycat'"
+"$godot_bin" --headless --path "$project_root" --export-debug "Android APK" "$pending_output"
+test -s "$pending_output"
+mv "$pending_output" "$output_path"
+badging="$("$sdk_root/build-tools/33.0.2/aapt" dump badging "$output_path")"
+grep -Fq "package: name='com.jacktzeng.jellycat'" <<< "$badging"
+python3 "$project_root/tools/verify_android_artifact.py" "$output_path" "$project_root"
 sha256sum "$output_path" | tee "$output_path.sha256"
 echo "ANDROID_APK_OK $output_path"

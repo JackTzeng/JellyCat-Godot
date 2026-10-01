@@ -26,8 +26,10 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Install the Godot 4.2 Android SDK baseline
+      - name: Set up Android SDK command-line tools
         uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools'
 
       - name: Install pinned Android platform packages
         shell: bash
