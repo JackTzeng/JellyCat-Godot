@@ -1,0 +1,119 @@
+name: Android debug APK
+
+on:
+  push:
+    branches:
+      - codex/jc-g1-three-pet-apk
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android-debug-apk:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    env:
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+      ANDROID_HOME: /usr/local/lib/android/sdk
+    steps:
+      - name: Check out exact source revision
+        uses: actions/checkout@v4
+
+      - name: Install OpenJDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install the Godot 4.2 Android SDK baseline
+        uses: android-actions/setup-android@v3
+
+      - name: Install pinned Android platform packages
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager --install \
+            "platform-tools" \
+            "build-tools;33.0.2" \
+            "platforms;android-33" \
+            "cmdline-tools;latest" \
+            "cmake;3.10.2.4988404" \
+            "ndk;23.2.8568313"
+
+      - name: Download Godot 4.2.1 and matching export templates
+        shell: bash
+        run: |
+          set -euo pipefail
+          godot_dir="$RUNNER_TEMP/godot-4.2.1"
+          template_archive="$RUNNER_TEMP/godot-4.2.1-export-templates.tpz"
+          mkdir -p "$godot_dir" "$RUNNER_TEMP/godot-export-templates"
+          curl --fail --location --retry 3 \
+            https://github.com/godotengine/godot/releases/download/4.2.1-stable/Godot_v4.2.1-stable_linux.x86_64.zip \
+            --output "$RUNNER_TEMP/godot-4.2.1.zip"
+          unzip -q "$RUNNER_TEMP/godot-4.2.1.zip" -d "$godot_dir"
+          godot_bin="$godot_dir/Godot_v4.2.1-stable_linux.x86_64"
+          chmod +x "$godot_bin"
+          version="$("$godot_bin" --version)"
+          case "$version" in
+            4.2.1.stable*) ;;
+            *) echo "Expected Godot 4.2.1.stable, got $version" >&2; exit 1 ;;
+          esac
+          curl --fail --location --retry 3 \
+            https://github.com/godotengine/godot/releases/download/4.2.1-stable/Godot_v4.2.1-stable_export_templates.tpz \
+            --output "$template_archive"
+          unzip -q "$template_archive" -d "$RUNNER_TEMP/godot-export-templates"
+          android_template="$(find "$RUNNER_TEMP/godot-export-templates" -type f -name android_debug.apk -print -quit)"
+          test -n "$android_template"
+          echo "GODOT_BIN=$godot_bin" >> "$GITHUB_ENV"
+          echo "GODOT_TEMPLATE_DIR=$(dirname "$android_template")" >> "$GITHUB_ENV"
+          echo "GODOT_VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Import, run isolated runtime acceptance, and export
+        run: tools/build_android.sh
+        env:
+          APK_OUTPUT_PATH: exports/builds/android/JellyCat-debug.apk
+
+      - name: Record build identity
+        id: metadata
+        shell: bash
+        run: |
+          apk_sha="$(awk '{print $1}' exports/builds/android/JellyCat-debug.apk.sha256)"
+          {
+            echo "commit=$GITHUB_SHA"
+            echo "godot=$GODOT_VERSION"
+            echo "java=$(java -version 2>&1 | head -1)"
+            echo "android_platform=33"
+            echo "android_build_tools=33.0.2"
+            echo "android_ndk=23.2.8568313"
+            echo "android_cmake=3.10.2.4988404"
+            echo "package=com.jacktzeng.jellycat"
+            echo "apk_sha256=$apk_sha"
+          } | tee exports/builds/android/build-metadata.txt
+          echo "sha256=$apk_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Upload installable debug APK
+        id: artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: JellyCat-debug-APK-${{ github.sha }}
+          path: |
+            exports/builds/android/JellyCat-debug.apk
+            exports/builds/android/JellyCat-debug.apk.sha256
+            exports/builds/android/build-metadata.txt
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish build receipt
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## Android debug build"
+            echo
+            echo "- Source: $GITHUB_SHA"
+            echo "- Godot: ${GODOT_VERSION:-not downloaded}"
+            echo "- Package: com.jacktzeng.jellycat"
+            echo "- APK SHA-256: ${{ steps.metadata.outputs.sha256 || 'not produced' }}"
+            echo "- Artifact: ${{ steps.artifact.outputs.artifact-url || 'not uploaded' }}"
+          } >> "$GITHUB_STEP_SUMMARY"
