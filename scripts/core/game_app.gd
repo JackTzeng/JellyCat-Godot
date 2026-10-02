@@ -27,7 +27,8 @@ func load_data_tables() -> void:
 		"evolution": load_json_file("res://data/evolution.json"),
 		"items": load_json_file("res://data/items.json"),
 		"balance": load_json_file("res://data/balance.json"),
-		"version": load_json_file("res://data/version.json")
+		"version": load_json_file("res://data/version.json"),
+		"personalities": load_json_file("res://data/personalities.json")
 	}
 
 
