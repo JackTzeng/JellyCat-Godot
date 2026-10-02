@@ -5,13 +5,12 @@ class_name CoinDropSystem
 static func can_spawn_coin_bubble(active_count: int) -> bool:
 	if active_count >= int(GameApp.get_balance_value("max_coin_bubbles_on_screen", 10)):
 		return false
-	var jellycat: Variant = GameState.get_jellycat()
-	if not (jellycat is Dictionary):
-		return false
-	if str(jellycat.get("health", "healthy")) != "healthy":
-		return false
 	var mood_threshold: int = int(GameApp.get_balance_value("passive_coin_mood_threshold", 70))
-	return int(jellycat.get("mood", 0)) >= mood_threshold
+	for pet_id in GameState.get_active_pet_ids():
+		var pet: Dictionary = GameState.get_pet(pet_id)
+		if str(pet.get("health", "healthy")) == "healthy" and int(pet.get("mood", 0)) >= mood_threshold:
+			return true
+	return false
 
 
 static func get_active_coin_bubble_count(container: Node) -> int:

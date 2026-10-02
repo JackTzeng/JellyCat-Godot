@@ -14,7 +14,8 @@ func _ready() -> void:
 
 func _on_new_game_pressed() -> void:
 	RuntimeLogger.log_action("New game clicked")
-	GameState.reset_to_default()
+	SaveManager.reset_save()
+	EggSystem.ensure_starter_eggs()
 	SaveManager.save_game()
 	SceneRouter.go_egg_select()
 
