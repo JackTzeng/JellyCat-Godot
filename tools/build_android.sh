@@ -81,9 +81,41 @@ PY
 pending_output="${output_path%.apk}.pending.apk"
 mkdir -p "$(dirname -- "$output_path")"
 rm -f "$output_path" "$pending_output"
-"$godot_bin" --headless --editor --path "$project_root" --import
-"$godot_bin" --headless --path "$project_root" res://tools/runtime_acceptance_check.tscn
-"$godot_bin" --headless --path "$project_root" --export-debug "Android APK" "$pending_output"
+run_timed() {
+  local label="$1"
+  local limit="$2"
+  local log_path="$isolated_home/${label}.log"
+  local status
+  shift 2
+  echo "ANDROID_STEP_BEGIN $label timeout=${limit}s"
+  set +e
+  timeout --foreground --signal=TERM --kill-after=15s "$limit" "$@" 2>&1 | tee "$log_path"
+  status=${PIPESTATUS[0]}
+  set -e
+  if (( status != 0 )); then
+    echo "ANDROID_STEP_FAIL $label exit=$status" >&2
+    return "$status"
+  fi
+  echo "ANDROID_STEP_OK $label"
+}
+
+# Godot 4.2.1 does not support the newer --import argument. Opening the
+# project in headless editor mode performs the import scan; --quit keeps the
+# editor process bounded and lets the following checks detect incomplete work.
+run_timed import 180 "$godot_bin" --headless --editor --path "$project_root" --quit
+ctex_count="$(find "$project_root/.godot/imported" -maxdepth 1 -type f -name '*.ctex' -print 2>/dev/null | wc -l)"
+if (( ctex_count < 6 )); then
+  echo "Godot import produced $ctex_count CTEX assets; expected all 6 aquarium/stage textures." >&2
+  exit 1
+fi
+echo "ANDROID_IMPORT_OK ctex_count=$ctex_count"
+
+run_timed acceptance 180 "$godot_bin" --headless --path "$project_root" res://tools/runtime_acceptance_check.tscn
+if ! grep -q '^RUNTIME_ACCEPTANCE_OK ' "$isolated_home/acceptance.log"; then
+  echo "Runtime acceptance completed without its success marker." >&2
+  exit 1
+fi
+run_timed export 600 "$godot_bin" --headless --path "$project_root" --export-debug "Android APK" "$pending_output"
 test -s "$pending_output"
 mv "$pending_output" "$output_path"
 badging="$("$sdk_root/build-tools/33.0.2/aapt" dump badging "$output_path")"

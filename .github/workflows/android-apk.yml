@@ -6,13 +6,17 @@ on:
       - codex/jc-g1-three-pet-apk
   workflow_dispatch:
 
+concurrency:
+  group: android-debug-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
 jobs:
   android-debug-apk:
     runs-on: ubuntu-22.04
-    timeout-minutes: 45
+    timeout-minutes: 25
     env:
       ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
       ANDROID_HOME: /usr/local/lib/android/sdk
