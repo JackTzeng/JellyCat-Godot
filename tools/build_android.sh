@@ -84,9 +84,10 @@ rm -f "$output_path" "$pending_output"
 run_timed() {
   local label="$1"
   local limit="$2"
+  local mode="$3"
   local log_path="$isolated_home/${label}.log"
   local status
-  shift 2
+  shift 3
   echo "ANDROID_STEP_BEGIN $label timeout=${limit}s"
   set +e
   timeout --foreground --signal=TERM --kill-after=15s "$limit" "$@" 2>&1 | tee "$log_path"
@@ -96,26 +97,55 @@ run_timed() {
     echo "ANDROID_STEP_FAIL $label exit=$status" >&2
     return "$status"
   fi
+  if [[ "$mode" == "strict" ]] && grep -E 'SCRIPT ERROR:|Parse Error:|ERROR: Failed to load (script|resource)' "$log_path"; then
+    echo "ANDROID_STEP_FAIL $label detected a Godot parser/runtime/resource error." >&2
+    return 1
+  fi
   echo "ANDROID_STEP_OK $label"
 }
 
-# Godot 4.2.1 does not support the newer --import argument. Opening the
-# project in headless editor mode performs the import scan; --quit keeps the
-# editor process bounded and lets the following checks detect incomplete work.
-run_timed import 180 "$godot_bin" --headless --editor --path "$project_root" --quit
-ctex_count="$(find "$project_root/.godot/imported" -maxdepth 1 -type f -name '*.ctex' -print 2>/dev/null | wc -l)"
-if (( ctex_count < 6 )); then
-  echo "Godot import produced $ctex_count CTEX assets; expected all 6 aquarium/stage textures." >&2
-  exit 1
-fi
-echo "ANDROID_IMPORT_OK ctex_count=$ctex_count"
+# Godot 4.2.1 does not support the newer --import argument. Its first editor
+# scan bootstraps the global class cache, so allow that bounded cold scan to
+# finish its import work before a clean second editor pass checks all scripts.
+run_timed import_bootstrap 90 bootstrap "$godot_bin" --headless --editor --path "$project_root" --quit-after 1200 --max-fps 60
+python3 - "$project_root" <<'PY'
+import pathlib
+import re
+import sys
 
-run_timed acceptance 180 "$godot_bin" --headless --path "$project_root" res://tools/runtime_acceptance_check.tscn
+root = pathlib.Path(sys.argv[1])
+pngs = [
+    root / "assets/backgrounds/aquarium_tank.png",
+    *(root / f"assets/jellycats/normal_jellycat/stages/stage_{i}.png" for i in range(1, 6)),
+]
+for png in pngs:
+    import_file = pathlib.Path(f"{png}.import")
+    if not import_file.is_file():
+        raise SystemExit(f"Missing Godot import remap: {import_file}")
+    text = import_file.read_text(encoding="utf-8")
+    match = re.search(r'^path="res://([^"\r\n]+\.ctex)"$', text, re.MULTILINE)
+    if not match:
+        raise SystemExit(f"Missing CTEX output in import remap: {import_file}")
+    imported = root / match.group(1)
+    if not imported.is_file() or imported.stat().st_size == 0:
+        raise SystemExit(f"Godot import output missing: {imported}")
+cache = root / ".godot/global_script_class_cache.cfg"
+if not cache.is_file():
+    raise SystemExit(f"Godot global script class cache missing: {cache}")
+cache_text = cache.read_text(encoding="utf-8")
+for class_name in ["CareSystem", "CurrencySystem", "EggSystem", "HatchSystem", "EvolutionSystem"]:
+    if class_name not in cache_text:
+        raise SystemExit(f"Godot global script class cache is incomplete: {class_name}")
+print("ANDROID_IMPORT_OK ctex_count=6 global_classes=5")
+PY
+run_timed import_validate 120 strict "$godot_bin" --headless --editor --path "$project_root" --quit
+
+run_timed acceptance 180 strict "$godot_bin" --headless --path "$project_root" res://tools/runtime_acceptance_check.tscn
 if ! grep -q '^RUNTIME_ACCEPTANCE_OK ' "$isolated_home/acceptance.log"; then
   echo "Runtime acceptance completed without its success marker." >&2
   exit 1
 fi
-run_timed export 600 "$godot_bin" --headless --path "$project_root" --export-debug "Android APK" "$pending_output"
+run_timed export 600 strict "$godot_bin" --headless --path "$project_root" --export-debug "Android APK" "$pending_output"
 test -s "$pending_output"
 mv "$pending_output" "$output_path"
 badging="$("$sdk_root/build-tools/33.0.2/aapt" dump badging "$output_path")"

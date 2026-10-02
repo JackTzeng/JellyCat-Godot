@@ -48,6 +48,7 @@ jobs:
             "ndk;23.2.8568313"
 
       - name: Download Godot 4.2.1 and matching export templates
+        id: godot
         shell: bash
         run: |
           set -euo pipefail
@@ -74,6 +75,58 @@ jobs:
           echo "GODOT_BIN=$godot_bin" >> "$GITHUB_ENV"
           echo "GODOT_TEMPLATE_DIR=$(dirname "$android_template")" >> "$GITHUB_ENV"
           echo "GODOT_VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Prepare private Godot and source QA kit
+        id: qa_kit
+        if: always() && steps.godot.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          qa_dir="$RUNNER_TEMP/jellycat-qa-kit"
+          mkdir -p "$qa_dir"
+          split --bytes=24m "$RUNNER_TEMP/godot-4.2.1.zip" "$qa_dir/godot-part-"
+          test -s "$qa_dir/godot-part-aa"
+          test -s "$qa_dir/godot-part-ab"
+          test ! -e "$qa_dir/godot-part-ac"
+          cat "$qa_dir/godot-part-aa" "$qa_dir/godot-part-ab" > "$qa_dir/godot-reassembled.zip"
+          cmp "$RUNNER_TEMP/godot-4.2.1.zip" "$qa_dir/godot-reassembled.zip"
+          rm "$qa_dir/godot-reassembled.zip"
+          git archive --format=zip --output="$qa_dir/jellycat-source.zip" "$GITHUB_SHA"
+          {
+            echo "commit=$GITHUB_SHA"
+            echo "godot_version=$GODOT_VERSION"
+            sha256sum "$RUNNER_TEMP/godot-4.2.1.zip" "$qa_dir/jellycat-source.zip"
+            wc -c "$qa_dir/godot-part-aa" "$qa_dir/godot-part-ab" "$qa_dir/jellycat-source.zip"
+          } | tee "$qa_dir/manifest.txt"
+
+      - name: Upload Godot QA part 1
+        if: always() && steps.qa_kit.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: JellyCat-Godot-4.2.1-part-1-${{ github.sha }}
+          path: ${{ runner.temp }}/jellycat-qa-kit/godot-part-aa
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Upload Godot QA part 2
+        if: always() && steps.qa_kit.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: JellyCat-Godot-4.2.1-part-2-${{ github.sha }}
+          path: ${{ runner.temp }}/jellycat-qa-kit/godot-part-ab
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Upload private JellyCat source QA archive
+        if: always() && steps.qa_kit.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: JellyCat-source-QA-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/jellycat-qa-kit/jellycat-source.zip
+            ${{ runner.temp }}/jellycat-qa-kit/manifest.txt
+          if-no-files-found: error
+          retention-days: 3
 
       - name: Import, run isolated runtime acceptance, and export
         run: tools/build_android.sh
