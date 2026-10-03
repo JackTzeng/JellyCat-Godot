@@ -11,7 +11,7 @@ import sys
 import tempfile
 import time
 import unittest
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 
 GODOT_ERROR = re.compile(r"(?im)^\s*(?:SCRIPT ERROR:|Parse Error:|ERROR:)")
@@ -34,13 +34,19 @@ def source_sha256(root: Path) -> str:
     excluded = {".git", ".godot"}
     ignored_exports = {"exports/builds", "exports/.godot-cli-home"}
     report = "WORKSTREAM_REPORT.md"
-    for path in sorted(p for p in root.rglob("*") if p.is_file() and not p.is_symlink()):
+    files: list[tuple[str, Path]] = []
+    for path in root.rglob("*"):
+        if not path.is_file() or path.is_symlink():
+            continue
         relative = path.relative_to(root).as_posix()
-        parts = set(Path(relative).parts)
+        parts = set(PurePosixPath(relative).parts)
         if parts & excluded or relative == report:
             continue
         if any(relative == prefix or relative.startswith(prefix + "/") for prefix in ignored_exports):
             continue
+        files.append((relative, path))
+
+    for relative, path in sorted(files, key=lambda item: item[0]):
         encoded_path = relative.encode("utf-8")
         content = path.read_bytes()
         digest.update(len(encoded_path).to_bytes(8, "big"))
@@ -97,6 +103,24 @@ def verify_apk(path: Path, started_ns: int) -> tuple[str | None, str | None]:
 
 
 class BuildGateTests(unittest.TestCase):
+    def test_source_sha_uses_relative_posix_path_order(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "assets").mkdir()
+            payloads = {"README.md": b"root", "assets/a.bin": b"asset"}
+            for relative, content in payloads.items():
+                (root / relative).write_bytes(content)
+
+            expected = hashlib.sha256()
+            for relative, content in sorted(payloads.items()):
+                encoded_path = relative.encode("utf-8")
+                expected.update(len(encoded_path).to_bytes(8, "big"))
+                expected.update(encoded_path)
+                expected.update(len(content).to_bytes(8, "big"))
+                expected.update(content)
+
+            self.assertEqual(source_sha256(root), expected.hexdigest())
+
     def test_clean_log_passes_even_when_it_has_no_diagnostic_marker(self) -> None:
         self.assertIsNone(check_godot_step("Godot Engine v4.2.1.stable\n", 0))
 

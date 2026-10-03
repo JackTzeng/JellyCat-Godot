@@ -47,7 +47,7 @@ static func calculate_passive_income() -> int:
 	var ticks: int = int(floor(seconds / float(max(interval, 1))))
 	if ticks <= 0:
 		return 0
-	return ticks * int(GameApp.get_balance_value("passive_coin_amount", 1)) * eligible_pet_count
+	return ticks * _global_income_per_interval(eligible_pet_count)
 
 
 static func calculate_offline_income(elapsed_seconds: int) -> int:
@@ -58,7 +58,7 @@ static func calculate_offline_income(elapsed_seconds: int) -> int:
 	var capped_seconds: int = min(max(elapsed_seconds, 0), int(GameApp.get_balance_value("offline_coin_cap_seconds", 14400)))
 	var interval: int = int(GameApp.get_balance_value("passive_coin_interval_seconds", 30))
 	var ticks: int = int(floor(float(capped_seconds) / float(max(interval, 1))))
-	return ticks * int(GameApp.get_balance_value("passive_coin_amount", 1)) * eligible_pet_count
+	return ticks * _global_income_per_interval(eligible_pet_count)
 
 
 static func apply_offline_income(elapsed_seconds: int) -> void:
@@ -91,6 +91,12 @@ static func _income_eligible_pet_count(mood_threshold: int) -> int:
 	var count: int = 0
 	for pet_id in GameState.get_active_pet_ids():
 		var pet: Dictionary = GameState.get_pet(pet_id)
-		if int(pet.get("mood", 0)) >= mood_threshold:
+		if str(pet.get("health", "healthy")) == "healthy" and int(pet.get("mood", 0)) >= mood_threshold:
 			count += 1
 	return count
+
+
+static func _global_income_per_interval(eligible_pet_count: int) -> int:
+	var per_pet_amount: int = max(0, int(GameApp.get_balance_value("passive_coin_amount", 1)))
+	var tank_budget: int = max(0, int(GameApp.get_balance_value("passive_coin_global_budget_per_interval", 3)))
+	return min(per_pet_amount * eligible_pet_count, tank_budget)

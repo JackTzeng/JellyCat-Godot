@@ -1,10 +1,13 @@
 extends Control
 
+const DOS_STYLE = preload("res://scripts/ui/dos_style.gd")
+
 @onready var egg_button: Button = %EggButton
 @onready var progress_label: Label = %ProgressLabel
 @onready var hint_label: Label = %HintLabel
 
 func _ready() -> void:
+	DOS_STYLE.apply(self)
 	RuntimeLogger.log_info("Hatch entered")
 	if not GameState.has_unhatched_egg():
 		RuntimeLogger.log_error("No egg found")
@@ -29,6 +32,8 @@ func _on_egg_pressed() -> void:
 		RuntimeLogger.log_info("Egg hatched")
 		hint_label.text = "A new JellyCat joined the aquarium!"
 		await get_tree().create_timer(0.45).timeout
+		if not is_inside_tree():
+			return
 		SceneRouter.go_aquarium()
 
 

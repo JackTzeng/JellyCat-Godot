@@ -12,6 +12,7 @@
   "passive_coin_interval_seconds": 30,
   "passive_coin_mood_threshold": 70,
   "passive_coin_amount": 1,
+  "passive_coin_global_budget_per_interval": 3,
   "coin_bubble_auto_collect_seconds": 15,
   "max_coin_bubbles_on_screen": 10,
   "actor_swim_speed": 32,

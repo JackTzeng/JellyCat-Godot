@@ -29,7 +29,9 @@ func reset_to_default() -> void:
 			"cleanliness": 100,
 			"facilities": [],
 			"food_drops": [],
-			"food_token_counter": 0
+			"food_token_counter": 0,
+			"coin_drops": [],
+			"coin_token_counter": 0
 		},
 		"nursery": {
 			"eggs": [],
@@ -102,6 +104,8 @@ func prepare_data(source: Dictionary) -> Dictionary:
 			return {"ok": false, "reason": "invalid_facilities", "data": {}}
 		if source_aquarium.has("food_drops") and not (source_aquarium["food_drops"] is Array):
 			return {"ok": false, "reason": "invalid_food_drops", "data": {}}
+		if source_aquarium.has("coin_drops") and not (source_aquarium["coin_drops"] is Array):
+			return {"ok": false, "reason": "invalid_coin_drops", "data": {}}
 	if next_data.has("nursery"):
 		var source_nursery: Dictionary = next_data["nursery"] as Dictionary
 		if source_nursery.has("eggs") and not (source_nursery["eggs"] is Array):
@@ -221,6 +225,40 @@ func prepare_data(source: Dictionary) -> Dictionary:
 		food_drops.append(drop)
 	aquarium["food_drops"] = food_drops
 	aquarium["food_token_counter"] = max_food_token
+	var coin_drops: Array[Dictionary] = []
+	var seen_coin_tokens: Dictionary = {}
+	var max_coin_token: int = max(int(aquarium.get("coin_token_counter", 0)), 0)
+	for raw_drop in aquarium.get("coin_drops", []) as Array:
+		if not (raw_drop is Dictionary):
+			return {"ok": false, "reason": "invalid_coin_drop_record", "data": {}}
+		var drop: Dictionary = (raw_drop as Dictionary).duplicate(true)
+		var token_id: String = str(drop.get("token_id", ""))
+		var source_pet_id: String = str(drop.get("source_pet_id", ""))
+		var raw_value: Variant = drop.get("value", null)
+		var raw_x: Variant = drop.get("x", null)
+		var raw_y: Variant = drop.get("y", null)
+		var raw_expiry: Variant = drop.get("expires_at", null)
+		if token_id.is_empty() or token_id != token_id.strip_edges() or seen_coin_tokens.has(token_id) or not normalized_pets.has(source_pet_id):
+			return {"ok": false, "reason": "invalid_coin_token_id", "data": {}}
+		if typeof(raw_value) not in [TYPE_INT, TYPE_FLOAT] or not is_finite(float(raw_value)) or float(raw_value) <= 0.0 or floor(float(raw_value)) != float(raw_value):
+			return {"ok": false, "reason": "invalid_coin_drop_value", "data": {}}
+		if typeof(raw_x) not in [TYPE_INT, TYPE_FLOAT] or typeof(raw_y) not in [TYPE_INT, TYPE_FLOAT] or typeof(raw_expiry) not in [TYPE_INT, TYPE_FLOAT]:
+			return {"ok": false, "reason": "invalid_coin_drop_position", "data": {}}
+		if not is_finite(float(raw_x)) or not is_finite(float(raw_y)) or not is_finite(float(raw_expiry)) or float(raw_expiry) <= 0.0:
+			return {"ok": false, "reason": "invalid_coin_drop_position", "data": {}}
+		drop["token_id"] = token_id
+		drop["source_pet_id"] = source_pet_id
+		drop["value"] = int(raw_value)
+		drop["x"] = float(raw_x)
+		drop["y"] = float(raw_y)
+		drop["expires_at"] = float(raw_expiry)
+		seen_coin_tokens[token_id] = true
+		var token_number: String = token_id.trim_prefix("coin_")
+		if token_number.is_valid_int():
+			max_coin_token = max(max_coin_token, int(token_number))
+		coin_drops.append(drop)
+	aquarium["coin_drops"] = coin_drops
+	aquarium["coin_token_counter"] = max_coin_token
 	var selected_id: String = str(aquarium.get("selected_pet_id", ""))
 	if not active_ids.has(selected_id):
 		aquarium["selected_pet_id"] = active_ids[0] if not active_ids.is_empty() else ""
@@ -421,6 +459,77 @@ func resolve_food_drop(token_id: String, pet_id: String = "", pet_data: Dictiona
 
 
 func _has_food_token(drops: Array, token_id: String) -> bool:
+	for drop in drops:
+		if drop is Dictionary and str((drop as Dictionary).get("token_id", "")) == token_id:
+			return true
+	return false
+
+
+func get_coin_drops() -> Array[Dictionary]:
+	var result: Array[Dictionary] = []
+	for drop in (data.get("aquarium", {}) as Dictionary).get("coin_drops", []) as Array:
+		if drop is Dictionary:
+			result.append((drop as Dictionary).duplicate(true))
+	return result
+
+
+func reserve_coin_drop(source_pet_id: String, value: int, position: Vector2, expires_at: float) -> Dictionary:
+	if value <= 0 or not get_active_pet_ids().has(source_pet_id):
+		return {}
+	var aquarium: Dictionary = data["aquarium"] as Dictionary
+	var drops: Array = aquarium.get("coin_drops", []) as Array
+	var token_number: int = max(int(aquarium.get("coin_token_counter", 0)), 0) + 1
+	var token_id: String = "coin_%08d" % token_number
+	while _has_coin_token(drops, token_id):
+		token_number += 1
+		token_id = "coin_%08d" % token_number
+	aquarium["coin_token_counter"] = token_number
+	drops.append({
+		"token_id": token_id,
+		"source_pet_id": source_pet_id,
+		"value": value,
+		"x": position.x,
+		"y": position.y,
+		"expires_at": maxf(expires_at, Time.get_unix_time_from_system() + 1.0)
+	})
+	aquarium["coin_drops"] = drops
+	mark_changed()
+	return drops[-1].duplicate(true)
+
+
+func resolve_coin_drop(token_id: String) -> Dictionary:
+	var aquarium: Dictionary = data["aquarium"] as Dictionary
+	var drops: Array = aquarium.get("coin_drops", []) as Array
+	var drop_index: int = -1
+	var resolved_drop: Dictionary = {}
+	for index in range(drops.size()):
+		if drops[index] is Dictionary and str((drops[index] as Dictionary).get("token_id", "")) == token_id:
+			drop_index = index
+			resolved_drop = (drops[index] as Dictionary).duplicate(true)
+			break
+	if drop_index < 0:
+		return {}
+	drops.remove_at(drop_index)
+	aquarium["coin_drops"] = drops
+	var currency: Dictionary = data["currency"] as Dictionary
+	currency["bubble_coin"] = max(0, int(currency.get("bubble_coin", 0))) + int(resolved_drop.get("value", 0))
+	mark_changed()
+	return resolved_drop
+
+
+func cancel_coin_drop(token_id: String) -> bool:
+	var aquarium: Dictionary = data["aquarium"] as Dictionary
+	var drops: Array = aquarium.get("coin_drops", []) as Array
+	for index in range(drops.size()):
+		if drops[index] is Dictionary and str((drops[index] as Dictionary).get("token_id", "")) == token_id:
+			drops.remove_at(index)
+			aquarium["coin_drops"] = drops
+			mark_changed()
+			return true
+	return false
+
+
+func _has_coin_token(drops: Array, token_id: String) -> bool:
 	for drop in drops:
 		if drop is Dictionary and str((drop as Dictionary).get("token_id", "")) == token_id:
 			return true
@@ -679,6 +788,10 @@ func _ensure_root_defaults(target: Dictionary) -> void:
 		aquarium["food_drops"] = []
 	if not aquarium.has("food_token_counter"):
 		aquarium["food_token_counter"] = 0
+	if not aquarium.has("coin_drops"):
+		aquarium["coin_drops"] = []
+	if not aquarium.has("coin_token_counter"):
+		aquarium["coin_token_counter"] = 0
 	if not target.get("nursery") is Dictionary:
 		target["nursery"] = {}
 	var nursery: Dictionary = target["nursery"] as Dictionary

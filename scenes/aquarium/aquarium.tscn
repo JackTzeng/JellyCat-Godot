@@ -37,7 +37,25 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 mouse_filter = 2
 
+[node name="PetRosterBackdrop" type="ColorRect" parent="."]
+unique_name_in_owner = true
+layout_mode = 1
+mouse_filter = 2
+color = Color(0.02, 0.07, 0.1, 0.96)
+
+[node name="PetRoster" type="HBoxContainer" parent="."]
+unique_name_in_owner = true
+layout_mode = 1
+theme_override_constants/separation = 8
+
+[node name="RenameButton" type="Button" parent="PetRoster"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(112, 56)
+text = "Rename"
+
 [node name="StatusBackdrop" type="ColorRect" parent="."]
+unique_name_in_owner = true
 layout_mode = 1
 anchors_preset = 10
 anchor_right = 1.0
@@ -46,9 +64,10 @@ offset_top = 20.0
 offset_right = -1148.0
 offset_bottom = 320.0
 mouse_filter = 2
-color = Color(0.02, 0.05, 0.09, 0.45)
+color = Color(0.02, 0.07, 0.1, 0.96)
 
 [node name="TopPanel" type="VBoxContainer" parent="."]
+unique_name_in_owner = true
 layout_mode = 1
 anchors_preset = 10
 anchor_right = 1.0
@@ -136,6 +155,7 @@ text = "Evolution: 0 / 0"
 horizontal_alignment = 1
 
 [node name="InventoryBackdrop" type="ColorRect" parent="."]
+unique_name_in_owner = true
 layout_mode = 1
 anchors_preset = 10
 anchor_right = 1.0
@@ -144,7 +164,7 @@ offset_top = 28.0
 offset_right = -28.0
 offset_bottom = 180.0
 mouse_filter = 2
-color = Color(0.02, 0.05, 0.09, 0.45)
+color = Color(0.02, 0.07, 0.1, 0.96)
 
 [node name="InventoryLabel" type="Label" parent="."]
 unique_name_in_owner = true
@@ -195,6 +215,7 @@ text = "Runtime log is visible below the aquarium."
 horizontal_alignment = 1
 
 [node name="ActionBackdrop" type="ColorRect" parent="."]
+unique_name_in_owner = true
 layout_mode = 1
 anchors_preset = 12
 anchor_top = 1.0
@@ -205,9 +226,10 @@ offset_top = -342.0
 offset_right = -18.0
 offset_bottom = -18.0
 mouse_filter = 2
-color = Color(0.02, 0.05, 0.09, 0.35)
+color = Color(0.02, 0.07, 0.1, 0.96)
 
 [node name="ActionBar" type="GridContainer" parent="."]
+unique_name_in_owner = true
 layout_mode = 1
 anchors_preset = 12
 anchor_top = 1.0
@@ -274,3 +296,20 @@ unique_name_in_owner = true
 layout_mode = 2
 custom_minimum_size = Vector2(310, 50)
 text = "Hide Log"
+
+[node name="NurseryButton" type="Button" parent="ActionBar"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(310, 56)
+text = "Nursery"
+
+[node name="RenameDialog" type="ConfirmationDialog" parent="."]
+unique_name_in_owner = true
+title = "Rename JellyCat"
+dialog_text = "Enter a name for the selected JellyCat."
+
+[node name="NicknameEdit" type="LineEdit" parent="RenameDialog"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(360, 56)
+max_length = 18
+placeholder_text = "JellyCat"
