@@ -2,42 +2,42 @@ extends Node
 
 class_name DebugTools
 
-static func add_hunger(amount: int = 10) -> void:
-	var jellycat: Dictionary = _get_jellycat()
-	if jellycat.is_empty():
+static func add_hunger(pet_id: String, amount: int = 10) -> void:
+	var pet: Dictionary = GameState.get_pet(pet_id)
+	if pet.is_empty():
 		return
-	jellycat["hunger"] = clamp(int(jellycat.get("hunger", 0)) + amount, 0, 100)
-	GameState.set_jellycat(jellycat)
+	pet["hunger"] = clampi(int(pet.get("hunger", 0)) + amount, 0, 100)
+	GameState.set_pet(pet_id, pet)
 
 
-static func add_mood(amount: int = 10) -> void:
-	var jellycat: Dictionary = _get_jellycat()
-	if jellycat.is_empty():
+static func add_mood(pet_id: String, amount: int = 10) -> void:
+	var pet: Dictionary = GameState.get_pet(pet_id)
+	if pet.is_empty():
 		return
-	jellycat["mood"] = clamp(int(jellycat.get("mood", 0)) + amount, 0, 100)
-	GameState.set_jellycat(jellycat)
+	pet["mood"] = clampi(int(pet.get("mood", 0)) + amount, 0, 100)
+	GameState.set_pet(pet_id, pet)
 
 
-static func add_growth_exp(amount: int = 100) -> void:
-	var jellycat: Dictionary = _get_jellycat()
-	if jellycat.is_empty():
+static func add_growth_exp(pet_id: String, amount: int = 100) -> void:
+	var pet: Dictionary = GameState.get_pet(pet_id)
+	if pet.is_empty():
 		return
-	jellycat["growth_exp"] = int(jellycat.get("growth_exp", 0)) + amount
-	GameState.set_jellycat(jellycat)
+	pet["growth_exp"] = int(pet.get("growth_exp", 0)) + amount
+	GameState.set_pet(pet_id, pet)
 
 
 static func add_bubble_coin(amount: int = 100) -> void:
 	CurrencySystem.add_coin(amount)
 
 
-static func direct_evolve() -> void:
-	var jellycat: Dictionary = _get_jellycat()
-	var next_stage: Dictionary = EvolutionSystem.get_next_stage_data()
-	if jellycat.is_empty() or next_stage.is_empty():
+static func direct_evolve(pet_id: String) -> void:
+	var pet: Dictionary = GameState.get_pet(pet_id)
+	var next_stage: Dictionary = EvolutionSystem.get_next_stage_data(pet_id)
+	if pet.is_empty() or next_stage.is_empty():
 		return
-	jellycat["growth_exp"] = max(int(jellycat.get("growth_exp", 0)), int(next_stage.get("required_growth_exp", 0)))
-	GameState.set_jellycat(jellycat)
-	EvolutionSystem.evolve()
+	pet["growth_exp"] = max(int(pet.get("growth_exp", 0)), int(next_stage.get("required_growth_exp", 0)))
+	GameState.set_pet(pet_id, pet)
+	EvolutionSystem.evolve(pet_id)
 
 
 static func reset_save() -> void:
@@ -48,9 +48,3 @@ static func reset_save() -> void:
 static func simulate_days(days: int) -> void:
 	CareSystem.simulate_days(float(days))
 
-
-static func _get_jellycat() -> Dictionary:
-	var jellycat: Variant = GameState.get_jellycat()
-	if jellycat is Dictionary:
-		return jellycat.duplicate(true)
-	return {}

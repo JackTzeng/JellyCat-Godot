@@ -1,0 +1,288 @@
+extends Node
+
+const ISOLATED_SAVE_PATH: String = "user://jellycat_g1_gameplay_save.json"
+
+var checks: int = 0
+var failures: Array[String] = []
+
+
+func _ready() -> void:
+	call_deferred("_run")
+
+
+func _run() -> void:
+	print("G1 acceptance: start")
+	_expect(SaveManager.set_save_path_for_test(ISOLATED_SAVE_PATH), "Uses a separate user:// save file")
+	SaveManager.reset_save()
+	GameApp.load_data_tables()
+	GameState.reset_to_default()
+	var title_scene: PackedScene = load("res://scenes/title/title.tscn") as PackedScene
+	_expect(title_scene != null, "Real Title scene loads")
+	if title_scene != null:
+		var title_ui: Control = title_scene.instantiate() as Control
+		get_tree().root.add_child(title_ui)
+		await get_tree().process_frame
+		var new_game_button: Button = title_ui.get_node("%NewGameButton") as Button
+		_expect(new_game_button.pressed.is_connected(Callable(title_ui, "_on_new_game_pressed")), "Title New Game button binds to its handler")
+		_expect(new_game_button.get_theme_stylebox("normal") != null, "Title button receives the DOS-style flat control")
+		title_ui.queue_free()
+		await get_tree().process_frame
+	var starter_eggs: Array[Dictionary] = EggSystem.ensure_starter_eggs()
+	_expect(starter_eggs.size() == 3, "New game grants three starter eggs")
+	var egg_select_scene: PackedScene = load("res://scenes/egg_select/egg_select.tscn") as PackedScene
+	var egg_select_ui: Control = egg_select_scene.instantiate() as Control
+	get_tree().root.add_child(egg_select_ui)
+	await get_tree().process_frame
+	_expect(bool(egg_select_ui.call("_select_active_egg")), "The starter egg can be selected through the Egg Select UI")
+	egg_select_ui.queue_free()
+	await get_tree().process_frame
+	var hatch_scene: PackedScene = load("res://scenes/hatch/hatch.tscn") as PackedScene
+	var aquarium_scene: PackedScene = load("res://scenes/aquarium/aquarium.tscn") as PackedScene
+	var aquarium: Control = null
+	for hatch_index in range(3):
+		if hatch_index > 0:
+			_expect(aquarium != null and not (aquarium.get_node("%NurseryButton") as Button).disabled, "The Aquarium offers remaining starter eggs in its Nursery button")
+			_expect(bool(aquarium.call("_select_next_unhatched_egg")), "Nursery selects the next unhatched egg by ID")
+		var hatch_ui: Control = hatch_scene.instantiate() as Control
+		get_tree().root.add_child(hatch_ui)
+		await get_tree().process_frame
+		var egg_button: Button = hatch_ui.get_node("%EggButton") as Button
+		for _tap in range(10):
+			egg_button.pressed.emit()
+		_expect(GameState.get_active_pet_ids().size() == hatch_index + 1, "Hatch UI adds pet %d through 10 player taps" % (hatch_index + 1))
+		if hatch_index == 0:
+			aquarium = aquarium_scene.instantiate() as Control
+			get_tree().root.add_child(aquarium)
+		hatch_ui.queue_free()
+		await get_tree().process_frame
+	for pet_id in GameState.get_active_pet_ids():
+		var pet: Dictionary = GameState.get_pet(pet_id)
+		pet["hunger"] = 35
+		GameState.set_pet(pet_id, pet)
+
+	_expect(aquarium_scene != null, "Real Aquarium scene loads")
+	if aquarium_scene == null:
+		_finish()
+		return
+	await get_tree().process_frame
+	print("G1 acceptance: aquarium and three actors ready")
+	var actors: Dictionary = aquarium.get("actors_by_id") as Dictionary
+	_expect(actors.size() == 3, "Aquarium creates three pet actors")
+	_expect((aquarium.get_node("%ActorAnchor") as Node2D).get_child_count() == 3, "Actor scene tree has exactly three children")
+	aquarium.call("_layout_ui", Vector2(2400.0, 1080.0), Rect2(Vector2(40.0, 24.0), Vector2(2320.0, 1032.0)))
+	var simulated_action: Control = aquarium.get_node("%ActionBar") as Control
+	var simulated_roster: Control = aquarium.get_node("%PetRoster") as Control
+	_expect(simulated_action.position.x >= 40.0 and simulated_action.position.y >= 24.0 and simulated_action.position.x + simulated_action.size.x <= 2360.0 and simulated_action.position.y + simulated_action.size.y <= 1056.0, "20:9 layout keeps the action bar inside simulated safe bounds")
+	_expect(simulated_roster.position.x >= 40.0 and simulated_roster.position.y >= 24.0 and simulated_roster.position.x + simulated_roster.size.x <= 2360.0, "20:9 layout keeps the pet roster inside simulated safe bounds")
+	aquarium.call("_apply_responsive_layout")
+	var selected_id: String = GameState.get_active_pet_ids()[0]
+	GameState.set_selected_pet_id(selected_id)
+	print("G1 acceptance: before roster/rename")
+	var nickname_edit: LineEdit = aquarium.get_node("%NicknameEdit") as LineEdit
+	var rename_button: Button = aquarium.get_node("%RenameButton") as Button
+	var rename_dialog: ConfirmationDialog = aquarium.get_node("%RenameDialog") as ConfirmationDialog
+	_expect(rename_dialog.confirmed.is_connected(Callable(aquarium, "_on_rename_confirmed")), "Rename dialog is connected to the selected pet")
+	rename_button.pressed.emit()
+	nickname_edit.text = "Mochi"
+	rename_dialog.confirmed.emit()
+	_expect(str(GameState.get_pet(selected_id).get("nickname", "")) == "Mochi", "Rename dialog persists the selected pet nickname")
+	_expect(str((aquarium.get_node("%EvolutionLabel") as Label).text).contains("EXP left"), "Selected pet UI shows EXP remaining to the next stage")
+	var roster_buttons: Dictionary = aquarium.get("roster_buttons_by_id") as Dictionary
+	var second_id: String = GameState.get_active_pet_ids()[1]
+	var second_pet_button: Button = roster_buttons.get(second_id) as Button
+	second_pet_button.pressed.emit()
+	_expect(GameState.get_selected_pet_id() == second_id, "Roster selects the pet bound to its explicit ID")
+	GameState.set_selected_pet_id(selected_id)
+	var nursery_button: Button = aquarium.get_node("%NurseryButton") as Button
+	_expect(nursery_button.disabled and GameState.get_nursery_eggs().is_empty(), "Nursery disables only after all three starter eggs hatch")
+	_expect(nursery_button.is_connected("pressed", Callable(aquarium, "_on_nursery_pressed")), "Nursery button remains connected to its route handler")
+	var roster_backdrop: Control = aquarium.get_node("%PetRosterBackdrop") as Control
+	_expect(roster_backdrop.get_theme_stylebox("panel") == null or roster_backdrop.size.x > 0.0, "Roster layout retains a visible flat panel")
+	aquarium.call("_apply_responsive_layout")
+	print("G1 acceptance: after roster/rename paused=%s eggs=%d" % [str(get_tree().paused), GameState.get_nursery_eggs().size()])
+	var hunger_before_by_pet: Dictionary = {}
+	for pet_id in GameState.get_active_pet_ids():
+		var actor: Node = actors.get(pet_id) as Node
+		_expect(actor != null, "%s has an actor" % pet_id)
+		if actor == null:
+			continue
+		_expect(str(actor.get("pet_id")) == pet_id, "%s actor has an explicit matching pet_id" % pet_id)
+		_expect(int(actor.get("current_stage")) == int(GameState.get_pet(pet_id).get("stage", 0)), "%s actor uses its bound stage" % pet_id)
+		var start_position: Vector2 = (actor as Node2D).global_position
+		hunger_before_by_pet[pet_id] = int(GameState.get_pet(pet_id).get("hunger", 0))
+		var click: InputEventScreenTouch = InputEventScreenTouch.new()
+		click.pressed = true
+		click.position = start_position
+		aquarium.call("_unhandled_input", click)
+		_expect(GameState.get_selected_pet_id() == pet_id, "Touching %s selects that pet" % pet_id)
+		var old_hunger: int = int(GameState.get_pet(pet_id).get("hunger", 0))
+		var old_inventory: int = GameState.get_inventory_count("food_basic")
+		var actions: Dictionary = aquarium.get("last_action_time_by_name") as Dictionary
+		actions["feed"] = -999999.0
+		aquarium.set("last_action_time_by_name", actions)
+		aquarium.call("_on_feed_pressed")
+		_expect(int(GameState.get_pet(pet_id).get("hunger", 0)) == old_hunger, "Dropped food waits for an actor to eat")
+		_expect(GameState.get_food_drops().size() == GameState.get_active_pet_ids().find(pet_id) + 1, "Feed button creates one persisted food token")
+		_expect(GameState.get_inventory_count("food_basic") == old_inventory - 1, "One actor feed spends exactly one token")
+	print("G1 acceptance: all drops placed=%d paused=%s" % [GameState.get_food_drops().size(), str(get_tree().paused)])
+	var wait_time: float = 0.0
+	while not GameState.get_food_drops().is_empty() and wait_time < 25.0:
+		await get_tree().create_timer(0.1).timeout
+		wait_time += 0.1
+	_expect(GameState.get_food_drops().is_empty(), "Three food tokens are consumed once in the real Aquarium scene")
+	print("G1 acceptance: food chase wait %.1fs, drops remaining %d" % [wait_time, GameState.get_food_drops().size()])
+	for pet_id in GameState.get_active_pet_ids():
+		_expect(int(GameState.get_pet(pet_id).get("hunger", 0)) > int(hunger_before_by_pet.get(pet_id, 100)), "%s receives a fair feed" % pet_id)
+
+	_expect(SaveManager.save_game(), "Three-pet Aquarium state saves to the isolated file")
+	var actor_anchor: Node2D = aquarium.get_node("%ActorAnchor") as Node2D
+	var pending_drop: Dictionary = FoodDropSystem.drop_food(actor_anchor.global_position + Vector2(140.0, 20.0))
+	var pending_token: String = str(pending_drop.get("token_id", ""))
+	var inventory_with_pending_drop: int = GameState.get_inventory_count("food_basic")
+	var one_pet_id: String = GameState.get_active_pet_ids()[0]
+	var hunger_before_pending_eat: int = int(GameState.get_pet(one_pet_id).get("hunger", 0))
+	_expect(not pending_token.is_empty(), "One more food token is reserved before exit")
+	_expect(SaveManager.save_game(), "Pending feed ledger is durable before simulated exit")
+	GameState.reset_to_default()
+	_expect(SaveManager.load_game(), "Three-pet Aquarium state reloads")
+	_expect(GameState.get_active_pet_ids().size() == 3, "Reload retains the three active pet IDs")
+	_expect(str(GameState.get_pet(selected_id).get("nickname", "")) == "Mochi", "Renamed pet identity survives the save reload")
+	_expect(GameState.get_inventory_count("food_basic") == inventory_with_pending_drop, "Reload retains exact reserved food inventory")
+	_expect(GameState.get_food_drops().size() == 1 and str(GameState.get_food_drops()[0].get("token_id", "")) == pending_token, "Reload restores an in-flight food token once")
+	await get_tree().process_frame
+	_expect((aquarium.get("actors_by_id") as Dictionary).size() == 3, "Reload reconciles exactly three live actors")
+	_expect(FoodDropSystem.consume_food(pending_token, one_pet_id), "A restored token resolves to one explicit eater")
+	_expect(not FoodDropSystem.consume_food(pending_token, one_pet_id), "A consumed token cannot be replayed")
+	_expect(int(GameState.get_pet(one_pet_id).get("hunger", 0)) > hunger_before_pending_eat, "The replay attempt adds no second meal")
+	_expect(GameState.get_inventory_count("food_basic") == inventory_with_pending_drop, "Consumption does not refund a spent token")
+	_expect(GameState.get_food_drops().is_empty(), "Consumed token is removed from the save ledger")
+	await get_tree().create_timer(0.6).timeout
+	print("G1 acceptance: food restart transaction checks done")
+	var inventory_before_expiry: int = GameState.get_inventory_count("food_basic")
+	var expiring_drop: Dictionary = GameState.reserve_food_drop("food_basic", Vector2(80.0, 80.0), Time.get_unix_time_from_system() + 1.0)
+	var expiring_token: String = str(expiring_drop.get("token_id", ""))
+	_expect(not expiring_token.is_empty() and SaveManager.save_game(), "A short-lived food token saves before expiry")
+	aquarium.call("_update_food_drops", 0.1)
+	_expect((aquarium.get("food_drop_visuals") as Dictionary).has(expiring_token), "In-flight food token has a visible sinking marker")
+	await get_tree().create_timer(1.2).timeout
+	await get_tree().process_frame
+	_expect(GameState.get_food_drops().is_empty(), "An expired food token leaves the ledger")
+	_expect(GameState.get_inventory_count("food_basic") == inventory_before_expiry, "Expired food is refunded exactly once")
+	_expect(not (aquarium.get("food_drop_visuals") as Dictionary).has(expiring_token), "Expired food marker is removed from the Aquarium")
+	_expect(not (aquarium.get("food_claims") as Dictionary).has(expiring_token), "Expired food claim is cleared")
+	var inventory_before_duplicate_tap: int = GameState.get_inventory_count("food_basic")
+	var water_tap: Vector2 = Vector2(72.0, 560.0)
+	var world_touch: InputEventScreenTouch = InputEventScreenTouch.new()
+	world_touch.pressed = true
+	world_touch.position = water_tap
+	aquarium.call("_unhandled_input", world_touch)
+	var touch_drop_list: Array[Dictionary] = GameState.get_food_drops()
+	var duplicate_mouse: InputEventMouseButton = InputEventMouseButton.new()
+	duplicate_mouse.pressed = true
+	duplicate_mouse.button_index = MOUSE_BUTTON_LEFT
+	duplicate_mouse.position = water_tap
+	aquarium.call("_unhandled_input", duplicate_mouse)
+	_expect(touch_drop_list.size() == 1 and GameState.get_food_drops().size() == 1, "Touch plus its emulated mouse event reserves only one food token")
+	if not touch_drop_list.is_empty():
+		GameState.resolve_food_drop(str(touch_drop_list[0].get("token_id", "")))
+		SaveManager.save_game()
+		aquarium.call("_update_food_drops", 0.0)
+	_expect(GameState.get_inventory_count("food_basic") == inventory_before_duplicate_tap, "Duplicate world input does not spend food twice")
+	var panel_drop: Dictionary = FoodDropSystem.drop_food((aquarium.get_node("%ActorAnchor") as Node2D).global_position + Vector2(120.0, 20.0))
+	var panel_drop_token: String = str(panel_drop.get("token_id", ""))
+	aquarium.call("_update_food_drops", 0.0)
+	var actor_instances_before_panels: Dictionary = {}
+	for pet_id in GameState.get_active_pet_ids():
+		actor_instances_before_panels[pet_id] = int((aquarium.get("actors_by_id") as Dictionary)[pet_id].get_instance_id())
+	var actions_before_panels: Dictionary = aquarium.get("last_action_time_by_name") as Dictionary
+	actions_before_panels["shop"] = -999999.0
+	actions_before_panels["log_toggle"] = -999999.0
+	aquarium.set("last_action_time_by_name", actions_before_panels)
+	aquarium.call("_on_shop_pressed")
+	aquarium.call("_on_log_toggle_pressed")
+	var actor_instances_after_panels: Dictionary = aquarium.get("actors_by_id") as Dictionary
+	var actors_stayed_live: bool = true
+	for pet_id in actor_instances_before_panels.keys():
+		actors_stayed_live = actors_stayed_live and int(actor_instances_after_panels[pet_id].get_instance_id()) == int(actor_instances_before_panels[pet_id])
+	_expect(actors_stayed_live, "Opening Shop and runtime panels keeps each actor instance alive")
+	_expect((aquarium.get("food_drop_visuals") as Dictionary).has(panel_drop_token) and not GameState.get_food_drops().is_empty(), "Opening panels leaves an in-flight food token visible")
+	if not panel_drop_token.is_empty():
+		FoodDropSystem.consume_food(panel_drop_token, GameState.get_selected_pet_id())
+		aquarium.call("_update_food_drops", 0.0)
+
+	var source_pet_id: String = GameState.get_active_pet_ids()[0]
+	var source_actor: Node2D = (aquarium.get("actors_by_id") as Dictionary).get(source_pet_id) as Node2D
+	var source_pet: Dictionary = GameState.get_pet(source_pet_id)
+	source_pet["mood"] = 100
+	GameState.set_pet(source_pet_id, source_pet)
+	var balance_table: Dictionary = GameApp.get_table("balance")
+	balance_table["coin_bubble_auto_collect_seconds"] = 1.0
+	GameApp.data_tables["balance"] = balance_table
+	var coin_before: int = GameState.get_currency("bubble_coin")
+	var source_coin_position: Vector2 = CoinDropSystem.get_spawn_position(aquarium.get_viewport_rect().size, source_actor.global_position)
+	var manual_coin: Dictionary = CoinDropSystem.reserve_coin(source_pet_id, 3, source_coin_position)
+	var manual_token: String = str(manual_coin.get("token_id", ""))
+	var reserved_coin_position: Vector2 = Vector2(float(manual_coin.get("x", -999.0)), float(manual_coin.get("y", -999.0)))
+	_expect(not manual_token.is_empty() and reserved_coin_position.distance_to(source_actor.global_position) <= 80.0, "Coin is durably reserved near its source pet")
+	aquarium.call("_add_coin_bubble", manual_coin)
+	var manual_bubble: Node = (aquarium.get("coin_bubbles_by_id") as Dictionary).get(manual_token) as Node
+	_expect(manual_bubble != null, "Reserved coin restores as a visible pickup")
+	if manual_bubble != null:
+		manual_bubble.call("collect", false)
+		manual_bubble.call("collect", false)
+	_expect(GameState.get_currency("bubble_coin") == coin_before + 3, "Manual pickup credits once before the wallet animation")
+	_expect(GameState.get_coin_drops().is_empty(), "Collected coin is removed from its durable ledger")
+	_expect(CoinDropSystem.collect_coin(manual_token, false).is_empty(), "A collected coin token cannot be replayed")
+	_expect(GameState.get_currency("bubble_coin") == coin_before + 3, "Replay does not credit a second coin")
+	print("G1 acceptance: manual coin settlement done")
+	_expect(SaveManager.save_game(), "Manual coin result is durable before simulated exit")
+	GameState.reset_to_default()
+	_expect(SaveManager.load_game(), "Manual coin state reloads from its isolated save file")
+	aquarium.queue_free()
+	await get_tree().process_frame
+	aquarium = aquarium_scene.instantiate() as Control
+	get_tree().root.add_child(aquarium)
+	await get_tree().process_frame
+	_expect((aquarium.get("coin_bubbles_by_id") as Dictionary).is_empty(), "Restart does not restore a settled coin")
+	_expect(GameState.get_currency("bubble_coin") == coin_before + 3, "Restart retains exactly one manual credit")
+	print("G1 acceptance: manual coin restart done")
+
+	var restored_source_actor: Node2D = (aquarium.get("actors_by_id") as Dictionary).get(source_pet_id) as Node2D
+	var pending_coin: Dictionary = CoinDropSystem.reserve_coin(source_pet_id, 2, restored_source_actor.global_position)
+	var pending_coin_token: String = str(pending_coin.get("token_id", ""))
+	_expect(not pending_coin_token.is_empty(), "A second coin token is reserved before exit")
+	GameState.reset_to_default()
+	_expect(SaveManager.load_game(), "Pending coin ledger reloads from its isolated save file")
+	aquarium.queue_free()
+	await get_tree().process_frame
+	aquarium = aquarium_scene.instantiate() as Control
+	get_tree().root.add_child(aquarium)
+	await get_tree().process_frame
+	_expect((aquarium.get("coin_bubbles_by_id") as Dictionary).has(pending_coin_token), "Restart restores one uncollected coin")
+	var coin_before_auto: int = GameState.get_currency("bubble_coin")
+	await get_tree().create_timer(1.2).timeout
+	_expect(GameState.get_currency("bubble_coin") == coin_before_auto + 2, "Expired restored coin auto-collects once")
+	_expect(GameState.get_coin_drops().is_empty(), "Auto-collection settles and removes the coin ledger entry")
+	print("G1 acceptance: auto coin settlement done")
+	SaveManager.reset_save()
+	SaveManager.use_production_save_path()
+	aquarium.queue_free()
+	await get_tree().process_frame
+	_finish()
+
+
+func _expect(condition: bool, label: String) -> void:
+	checks += 1
+	if not condition:
+		failures.append(label)
+
+
+func _finish() -> void:
+	if failures.is_empty():
+		print("G1_GAMEPLAY_ACCEPTANCE_OK checks=%d" % checks)
+		get_tree().quit(0)
+		return
+	for failure in failures:
+		push_error("G1_GAMEPLAY_ACCEPTANCE_FAIL: %s" % failure)
+	print("G1_GAMEPLAY_ACCEPTANCE_FAILED checks=%d failures=%d" % [checks, failures.size()])
+	get_tree().quit(1)

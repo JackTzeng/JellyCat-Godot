@@ -1,0 +1,170 @@
+name: Android debug APK
+
+on:
+  push:
+    branches:
+      - codex/jc-g1-three-pet-apk
+  workflow_dispatch:
+
+concurrency:
+  group: android-debug-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  android-debug-apk:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    env:
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      APK_OUTPUT_PATH: exports/builds/android/JellyCat-debug.apk
+      ANDROID_DEBUG_KEYSTORE_BASE64: ${{ secrets.ANDROID_DEBUG_KEYSTORE_BASE64 }}
+      ANDROID_DEBUG_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_DEBUG_KEYSTORE_PASSWORD }}
+      ANDROID_DEBUG_KEYSTORE_USER: ${{ secrets.ANDROID_DEBUG_KEYSTORE_USER }}
+    steps:
+      - name: Check out exact source revision
+        uses: actions/checkout@v4
+
+      - name: Install pinned JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up pinned Android SDK packages
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools build-tools;33.0.2 platforms;android-33 cmdline-tools;latest cmake;3.10.2.4988404 ndk;23.2.8568313'
+
+      - name: Accept Android licenses and verify package versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          yes | sdkmanager --licenses >/dev/null
+          license_status=${PIPESTATUS[1]}
+          set -e
+          test "$license_status" -eq 0
+          sdkmanager --install \
+            "platform-tools" \
+            "build-tools;33.0.2" \
+            "platforms;android-33" \
+            "cmdline-tools;latest" \
+            "cmake;3.10.2.4988404" \
+            "ndk;23.2.8568313"
+          test -x "$ANDROID_SDK_ROOT/build-tools/33.0.2/aapt"
+          test -f "$ANDROID_SDK_ROOT/platforms/android-33/android.jar"
+          test -f "$ANDROID_SDK_ROOT/ndk/23.2.8568313/source.properties"
+          test -x "$ANDROID_SDK_ROOT/cmake/3.10.2.4988404/bin/cmake"
+
+      - name: Download Godot 4.2.1 and matching export templates
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/godot-4.2.1" "$RUNNER_TEMP/godot-export-templates"
+          curl --fail --location --retry 3 \
+            "https://github.com/godotengine/godot/releases/download/4.2.1-stable/Godot_v4.2.1-stable_linux.x86_64.zip" \
+            --output "$RUNNER_TEMP/godot-4.2.1.zip"
+          unzip -q "$RUNNER_TEMP/godot-4.2.1.zip" -d "$RUNNER_TEMP/godot-4.2.1"
+          godot_bin="$RUNNER_TEMP/godot-4.2.1/Godot_v4.2.1-stable_linux.x86_64"
+          chmod +x "$godot_bin"
+          version="$("$godot_bin" --version)"
+          case "$version" in
+            4.2.1.stable*) ;;
+            *) echo "Expected Godot 4.2.1.stable, got $version" >&2; exit 1 ;;
+          esac
+          curl --fail --location --retry 3 \
+            "https://github.com/godotengine/godot/releases/download/4.2.1-stable/Godot_v4.2.1-stable_export_templates.tpz" \
+            --output "$RUNNER_TEMP/godot-4.2.1-templates.tpz"
+          unzip -q "$RUNNER_TEMP/godot-4.2.1-templates.tpz" -d "$RUNNER_TEMP/godot-export-templates"
+          template_dir="$(find "$RUNNER_TEMP/godot-export-templates" -type f -name android_debug.apk -print -quit)"
+          test -n "$template_dir"
+          echo "GODOT_BIN=$godot_bin" >> "$GITHUB_ENV"
+          echo "GODOT_TEMPLATE_DIR=$(dirname "$template_dir")" >> "$GITHUB_ENV"
+          echo "GODOT_VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Run fail-closed imports, scene acceptance, and APK export
+        id: build
+        shell: bash
+        run: |
+          set -o pipefail
+          bash tools/build_android.sh 2>&1 | tee "$RUNNER_TEMP/android-build.log"
+
+      - name: Write build receipt
+        if: always()
+        id: receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk_sha="NOT_RUN"
+          source_sha="NOT_RUN"
+          signing_mode="NOT_RUN"
+          source_sha="$(python3 tools/test_android_build_gate.py source-sha --root .)"
+          if [[ -f exports/builds/android/JellyCat-debug.apk ]]; then
+            apk_sha="$(awk '{print $1}' exports/builds/android/JellyCat-debug.apk.sha256)"
+            signing_mode="$(grep '^ANDROID_SIGNING_MODE=' "$RUNNER_TEMP/android-build.log" | tail -1 | cut -d= -f2- || true)"
+            signing_mode="${signing_mode:-unknown}"
+          fi
+          build_status="${{ steps.build.outcome || 'NOT_RUN' }}"
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          {
+            echo "## Android debug APK"
+            echo
+            echo "- Source commit: $GITHUB_SHA"
+            echo "- Source tree SHA-256: $source_sha"
+            echo "- Godot: ${GODOT_VERSION:-NOT_RUN}"
+            echo "- Java: $(java -version 2>&1 | head -1 || true)"
+            echo "- Android platform/build tools: 33 / 33.0.2"
+            echo "- NDK/CMake: 23.2.8568313 / 3.10.2.4988404"
+            echo "- Package: com.jacktzeng.jellycat"
+            echo "- APK SHA-256: $apk_sha"
+            echo "- Signing: ${signing_mode}"
+            echo "- CI build status: $build_status"
+            echo "- Install/launch/gameplay/save-reopen evidence: NOT_RUN"
+            echo "- Run evidence: $run_url"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          if [[ -f exports/builds/android/JellyCat-debug.apk ]]; then
+            cat > exports/builds/android/build-metadata.txt <<EOF
+          source_commit=$GITHUB_SHA
+          source_tree_sha256=$source_sha
+          godot_version=${GODOT_VERSION:-NOT_RUN}
+          android_platform=33
+          android_build_tools=33.0.2
+          android_ndk=23.2.8568313
+          android_cmake=3.10.2.4988404
+          package=com.jacktzeng.jellycat
+          apk_sha256=$apk_sha
+          signing_mode=$signing_mode
+          ci_run_url=$run_url
+          install_launch_gameplay_save_reopen=NOT_RUN
+          EOF
+          fi
+          echo "apk_sha=$apk_sha" >> "$GITHUB_OUTPUT"
+          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
+          echo "signing_mode=$signing_mode" >> "$GITHUB_OUTPUT"
+
+      - name: Upload debug APK and receipt
+        if: steps.build.outcome == 'success'
+        id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: JellyCat-debug-APK-${{ github.sha }}
+          path: |
+            exports/builds/android/JellyCat-debug.apk
+            exports/builds/android/JellyCat-debug.apk.sha256
+            exports/builds/android/build-metadata.txt
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Record artifact result
+        if: always()
+        shell: bash
+        run: |
+          if [[ "${{ steps.upload.outcome || 'NOT_RUN' }}" == "success" ]]; then
+            echo "- Uploaded artifact: ${{ steps.upload.outputs.artifact-url }}" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- APK artifact upload: NOT_RUN" >> "$GITHUB_STEP_SUMMARY"
+          fi

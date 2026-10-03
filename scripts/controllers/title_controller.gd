@@ -1,9 +1,12 @@
 extends Control
 
+const DOS_STYLE = preload("res://scripts/ui/dos_style.gd")
+
 @onready var version_label: Label = %VersionLabel
 @onready var continue_button: Button = %ContinueButton
 
 func _ready() -> void:
+	DOS_STYLE.apply(self)
 	version_label.text = VersionManager.get_display_text()
 	continue_button.disabled = not SaveManager.has_save()
 	%NewGameButton.pressed.connect(_on_new_game_pressed)
@@ -14,7 +17,8 @@ func _ready() -> void:
 
 func _on_new_game_pressed() -> void:
 	RuntimeLogger.log_action("New game clicked")
-	GameState.reset_to_default()
+	SaveManager.reset_save()
+	EggSystem.ensure_starter_eggs()
 	SaveManager.save_game()
 	SceneRouter.go_egg_select()
 
