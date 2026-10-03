@@ -263,9 +263,15 @@ try {
             Write-Output "ANDROID_EXPORT_STATUS=FAIL"
             $exitCode = 1
         } else {
-            $aapt = Join-Path $AndroidSdkPath "build-tools\33.0.2\aapt.exe"
-            $badging = & $aapt dump badging $pendingOutput 2>&1 | Out-String
-            if ($LASTEXITCODE -ne 0 -or $badging -notmatch "package: name='com\.jacktzeng\.jellycat'") { throw "APK package identity check failed." }
+            $manifestVerifier = Join-Path $PSScriptRoot "verify_android_manifest.py"
+            $manifestArgs = @(
+                $manifestVerifier,
+                "--aapt", (Join-Path $AndroidSdkPath "build-tools\33.0.2\aapt.exe"),
+                "--aapt2", (Join-Path $AndroidSdkPath "build-tools\33.0.2\aapt2.exe"),
+                "--apk", $pendingOutput
+            )
+            & $PythonPath @manifestArgs
+            if ($LASTEXITCODE -ne 0) { throw "APK manifest package identity validation failed." }
             & $PythonPath (Join-Path $PSScriptRoot "verify_android_artifact.py") $pendingOutput $projectRoot
             if ($LASTEXITCODE -ne 0) { throw "APK JSON/PNG asset check failed." }
             & $PythonPath $gateTest verify-apk --apk $pendingOutput --started-ns "$runStartedNs" --sha-file $pendingSha --sha-name (Split-Path -Leaf $OutputPath)

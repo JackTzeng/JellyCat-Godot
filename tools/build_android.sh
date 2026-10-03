@@ -174,8 +174,10 @@ if (( ${#gate_failures[@]} > 0 )) || [[ ! -s "$pending_output" ]]; then
   echo "ANDROID_EXPORT_STATUS=FAIL"
   exit 1
 fi
-badging="$("$sdk_root/build-tools/33.0.2/aapt" dump badging "$pending_output")"
-grep -Fq "package: name='com.jacktzeng.jellycat'" <<< "$badging"
+"$python_bin" "$project_root/tools/verify_android_manifest.py" \
+  --aapt "$sdk_root/build-tools/33.0.2/aapt" \
+  --aapt2 "$sdk_root/build-tools/33.0.2/aapt2" \
+  --apk "$pending_output"
 "$python_bin" "$project_root/tools/verify_android_artifact.py" "$pending_output" "$project_root"
 "$python_bin" "$gate_test" verify-apk --apk "$pending_output" --started-ns "$started_ns" --sha-file "$pending_sha" --sha-name "$(basename -- "$output_path")"
 mv -f "$pending_output" "$output_path"
