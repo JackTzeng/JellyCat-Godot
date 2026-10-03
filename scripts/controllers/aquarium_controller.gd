@@ -1,6 +1,7 @@
 extends Control
 
 const COIN_BUBBLE_SCENE: PackedScene = preload("res://scenes/ui/coin_bubble_pickup.tscn")
+const JELLYCAT_ACTOR_SCENE: PackedScene = preload("res://scenes/pet/jellycat_actor.tscn")
 const DEFAULT_TOUCH_COOLDOWN_SECONDS: float = 0.5
 const ACTION_DEBOUNCE_SECONDS: float = 0.3
 
@@ -19,7 +20,7 @@ const ACTION_DEBOUNCE_SECONDS: float = 0.3
 @onready var inventory_label: Label = %InventoryLabel
 @onready var message_label: Label = %MessageLabel
 @onready var actor_anchor: Node2D = %ActorAnchor
-@onready var jellycat_actor: Node2D = %JellyCatActor
+@onready var food_drop_container: Control = %FoodDropContainer
 @onready var shop_panel: Control = %ShopPanel
 @onready var coin_bubble_container: Control = %CoinBubbleContainer
 @onready var runtime_log_panel: Control = %RuntimeLogPanel
@@ -30,6 +31,12 @@ var touch_status_timer: float = 0.0
 var log_next_refresh: bool = false
 var sick_generation_notice_shown: bool = false
 var last_action_time_by_name: Dictionary = {}
+var actors_by_id: Dictionary = {}
+var food_drop_visuals: Dictionary = {}
+var food_claims: Dictionary = {}
+var food_rng: RandomNumberGenerator = RandomNumberGenerator.new()
+var last_world_input_at: int = -1000
+var last_world_input_position: Vector2 = Vector2.ZERO
 
 func _ready() -> void:
 	RuntimeLogger.log_info("Aquarium entered")
@@ -43,14 +50,17 @@ func _ready() -> void:
 	%ShopButton.pressed.connect(_on_shop_pressed)
 	%DailyFoodButton.pressed.connect(_on_daily_food_pressed)
 	%LogToggleButton.pressed.connect(_on_log_toggle_pressed)
+	FoodDropSystem.expire_due_drops()
+	food_rng.randomize()
+	_sync_pet_actors()
 	_refresh(true)
-	var jellycat: Variant = GameState.get_jellycat()
-	if jellycat is Dictionary and str(jellycat.get("health", "healthy")) == "sick":
+	if _has_sick_active_pet():
 		RuntimeLogger.log_info("JellyCat is sick, bubble coin generation paused")
 		sick_generation_notice_shown = true
 
 
 func _process(delta: float) -> void:
+	_update_food_drops(delta)
 	if touch_cooldown > 0.0:
 		touch_cooldown = max(0.0, touch_cooldown - delta)
 	touch_status_timer += delta
@@ -67,21 +77,19 @@ func _process(delta: float) -> void:
 func _on_feed_pressed() -> void:
 	if not _accept_action("feed"):
 		return
-	if GameState.get_inventory_count("food_basic") <= 0:
-		_show_result(CareSystem.feed_food(), "Fed basic food.", "Not enough food.", false)
-		return
-	RuntimeLogger.log_action("Feed food clicked")
-	_show_result(CareSystem.feed_food(), "Fed basic food.", "Not enough food.", false)
+	var selected_actor: Node2D = actors_by_id.get(GameState.get_selected_pet_id()) as Node2D
+	var drop_position: Vector2 = actor_anchor.global_position if selected_actor == null else selected_actor.global_position + Vector2(150.0, -70.0)
+	_drop_basic_food(drop_position)
 
 
 func _on_cookie_pressed() -> void:
 	if not _accept_action("cookie"):
 		return
 	if GameState.get_inventory_count("cookie_basic") <= 0:
-		_show_result(CareSystem.feed_cookie(), "Fed cookie.", "Not enough cookie.", false)
+		_show_result(CareSystem.feed_cookie(GameState.get_selected_pet_id()), "Fed cookie.", "Not enough cookie.", false)
 		return
 	RuntimeLogger.log_action("Feed cookie clicked")
-	_show_result(CareSystem.feed_cookie(), "Fed cookie.", "Not enough cookie.", false)
+	_show_result(CareSystem.feed_cookie(GameState.get_selected_pet_id()), "Fed cookie.", "Not enough cookie.", false)
 
 
 func _on_touch_pressed() -> void:
@@ -89,52 +97,55 @@ func _on_touch_pressed() -> void:
 		return
 	if touch_cooldown > 0.0:
 		return
-	var ok: bool = CareSystem.touch_pet()
+	var ok: bool = CareSystem.touch_pet(GameState.get_selected_pet_id())
 	if ok:
 		touch_cooldown = float(GameApp.get_balance_value("touch_cooldown_seconds", DEFAULT_TOUCH_COOLDOWN_SECONDS))
+		var actor: Node = actors_by_id.get(GameState.get_selected_pet_id()) as Node
+		if actor != null:
+			actor.call("react_to_touch")
 	_show_result(ok, "JellyCat feels happy.", "Touch cooling down.", false, false)
 
 
 func _on_clean_pressed() -> void:
 	if not _accept_action("clean"):
 		return
-	var jellycat: Variant = GameState.get_jellycat()
-	if jellycat is Dictionary:
-		var target_cleanliness: int = int(GameApp.get_balance_value("cleanliness_after_clean", 100))
-		if int(jellycat.get("cleanliness", 0)) >= target_cleanliness:
-			_show_result(CareSystem.clean_tank(), "Tank cleaned.", "Tank is already clean.", true)
-			return
+	var aquarium: Dictionary = GameState.get_aquarium()
+	var target_cleanliness: int = int(GameApp.get_balance_value("cleanliness_after_clean", 100))
+	if int(aquarium.get("cleanliness", 0)) >= target_cleanliness:
+		_show_result(CareSystem.clean_tank(), "Tank cleaned.", "Tank is already clean.", true)
+		return
 	RuntimeLogger.log_action("Clean clicked")
-	_show_result(CareSystem.clean_tank(), "Tank cleaned.", "No jellycat found.", true)
+	_show_result(CareSystem.clean_tank(), "Tank cleaned.", "Tank is already clean.", true)
 
 
 func _on_medicine_pressed() -> void:
 	if not _accept_action("medicine"):
 		return
-	var jellycat: Variant = GameState.get_jellycat()
-	if jellycat is Dictionary:
-		if str(jellycat.get("health", "healthy")) == "healthy" or GameState.get_inventory_count("medicine_basic") <= 0:
-			_show_result(CareSystem.give_medicine(), "Medicine used.", "No medicine or no jellycat.", true)
-			return
+	var pet_id: String = GameState.get_selected_pet_id()
+	var pet: Dictionary = GameState.get_pet(pet_id)
+	if pet.is_empty() or str(pet.get("health", "healthy")) == "healthy" or GameState.get_inventory_count("medicine_basic") <= 0:
+		_show_result(CareSystem.give_medicine(pet_id), "Medicine used.", "No medicine or no pet selected.", true)
+		return
 	RuntimeLogger.log_action("Medicine clicked")
-	_show_result(CareSystem.give_medicine(), "Medicine used.", "No medicine or no jellycat.", true)
+	_show_result(CareSystem.give_medicine(pet_id), "Medicine used.", "No medicine or no pet selected.", true)
 
 
 func _on_evolve_pressed() -> void:
 	if not _accept_action("evolve"):
 		return
+	var pet_id: String = GameState.get_selected_pet_id()
+	var pet: Dictionary = GameState.get_pet(pet_id)
 	var failure_message: String = "Cannot evolve yet."
-	var next_stage: Dictionary = EvolutionSystem.get_next_stage_data()
-	var jellycat: Variant = GameState.get_jellycat()
+	var next_stage: Dictionary = EvolutionSystem.get_next_stage_data(pet_id)
 	if next_stage.is_empty():
-		failure_message = "Already max stage."
-		_show_result(EvolutionSystem.evolve(), "JellyCat evolved.", failure_message, true)
+		failure_message = "Already max stage or no pet selected."
+		_show_result(EvolutionSystem.evolve(pet_id), "JellyCat evolved.", failure_message, true)
 		return
-	if not (jellycat is Dictionary) or int(jellycat.get("growth_exp", 0)) < int(next_stage.get("required_growth_exp", 0)):
-		_show_result(EvolutionSystem.evolve(), "JellyCat evolved.", failure_message, true)
+	if pet.is_empty() or int(pet.get("growth_exp", 0)) < int(next_stage.get("required_growth_exp", 0)):
+		_show_result(EvolutionSystem.evolve(pet_id), "JellyCat evolved.", failure_message, true)
 		return
 	RuntimeLogger.log_action("Evolve clicked")
-	var ok: bool = EvolutionSystem.evolve()
+	var ok: bool = EvolutionSystem.evolve(pet_id)
 	_show_result(ok, "JellyCat evolved.", failure_message, true)
 
 
@@ -175,8 +186,7 @@ func _on_log_toggle_pressed() -> void:
 
 func _try_spawn_coin_bubble() -> void:
 	var active_count: int = CoinDropSystem.get_active_coin_bubble_count(coin_bubble_container)
-	var jellycat: Variant = GameState.get_jellycat()
-	if jellycat is Dictionary and str(jellycat.get("health", "healthy")) == "sick":
+	if _has_sick_active_pet():
 		if not sick_generation_notice_shown:
 			RuntimeLogger.log_info("JellyCat is sick, bubble coin generation paused")
 			sick_generation_notice_shown = true
@@ -219,22 +229,24 @@ func _show_message(text: String) -> void:
 
 
 func _on_state_changed() -> void:
+	_sync_pet_actors()
 	_refresh(false)
 
 
 func _refresh(log_refresh: bool = false) -> void:
-	var jellycat: Variant = GameState.get_jellycat()
-	if not (jellycat is Dictionary):
+	var pet_id: String = GameState.get_selected_pet_id()
+	var jellycat: Dictionary = GameState.get_pet(pet_id)
+	if jellycat.is_empty():
 		RuntimeLogger.log_error("No jellycat found")
 		return
-	var stage_data: Dictionary = EvolutionSystem.get_current_stage_data()
-	var next_stage: Dictionary = EvolutionSystem.get_next_stage_data()
+	var stage_data: Dictionary = EvolutionSystem.get_current_stage_data(pet_id)
+	var next_stage: Dictionary = EvolutionSystem.get_next_stage_data(pet_id)
 	var hunger_value: int = int(jellycat.get("hunger", 0))
 	var mood_value: int = int(jellycat.get("mood", 0))
-	var cleanliness_value: int = int(jellycat.get("cleanliness", 0))
+	var cleanliness_value: int = int(GameState.get_aquarium().get("cleanliness", 100))
 	var growth_exp: int = int(jellycat.get("growth_exp", 0))
 	coin_label.text = "Bubble Coin: %d" % GameState.get_currency("bubble_coin")
-	stage_label.text = "%s  Stage %d" % [stage_data.get("name", "JellyCat"), int(jellycat.get("stage", 1))]
+	stage_label.text = "%s  Stage %d · %s" % [str(jellycat.get("nickname", "JellyCat")), int(jellycat.get("stage", 1)), str(stage_data.get("name", ""))]
 	hunger_label.text = "Hunger: %d / 100" % hunger_value
 	mood_label.text = "Mood: %d / 100" % mood_value
 	cleanliness_label.text = "Cleanliness: %d / 100" % cleanliness_value
@@ -257,8 +269,10 @@ func _refresh(log_refresh: bool = false) -> void:
 			int(next_stage.get("required_growth_exp", 0)),
 			next_stage.get("name", "Next Stage")
 		]
-	actor_anchor.scale = Vector2.ONE
-	jellycat_actor.call("set_stage", int(jellycat.get("stage", 1)))
+	for actor_id in actors_by_id.keys():
+		var actor: Node = actors_by_id[actor_id] as Node
+		if is_instance_valid(actor):
+			actor.call("refresh_pet")
 	if runtime_log_panel.visible:
 		%LogToggleButton.text = "Hide Log"
 	else:
@@ -273,7 +287,7 @@ func _today_string() -> String:
 
 
 func _refresh_touch_exp_label() -> void:
-	var care_stats: Dictionary = GameState.get_care_stats()
+	var care_stats: Dictionary = GameState.get_current_care_stats(GameState.get_selected_pet_id())
 	var touch_cap: int = int(GameApp.get_balance_value("touch_growth_exp_cap", 20))
 	var reset_seconds: float = max(float(GameApp.get_balance_value("touch_exp_reset_seconds", 600)), 1.0)
 	var raw_start: String = str(care_stats.get("touch_exp_date", ""))
@@ -298,3 +312,168 @@ func _accept_action(action_name: String) -> bool:
 		return false
 	last_action_time_by_name[action_name] = now
 	return true
+
+
+func _sync_pet_actors() -> void:
+	var active_ids: Array[String] = GameState.get_active_pet_ids()
+	for pet_id in actors_by_id.keys():
+		if not active_ids.has(str(pet_id)):
+			var old_actor: Node = actors_by_id[pet_id] as Node
+			if is_instance_valid(old_actor):
+				old_actor.queue_free()
+			actors_by_id.erase(pet_id)
+	for index in range(active_ids.size()):
+		var pet_id: String = active_ids[index]
+		if actors_by_id.has(pet_id):
+			continue
+		var actor: Node2D = JELLYCAT_ACTOR_SCENE.instantiate() as Node2D
+		if actor == null or not bool(actor.call("set_pet_id", pet_id)):
+			if actor != null:
+				actor.free()
+			push_error("Aquarium rejected actor binding for pet_id: %s" % pet_id)
+			continue
+		actor.position = _actor_spawn_position(index, active_ids.size())
+		actor.connect("food_eaten", Callable(self, "_on_actor_food_eaten"))
+		actor_anchor.add_child(actor)
+		actors_by_id[pet_id] = actor
+
+
+func _actor_spawn_position(index: int, count: int) -> Vector2:
+	return Vector2((float(index) - float(count - 1) / 2.0) * 220.0, 0.0)
+
+
+func _has_sick_active_pet() -> bool:
+	for pet_id in GameState.get_active_pet_ids():
+		if str(GameState.get_pet(pet_id).get("health", "healthy")) == "sick":
+			return true
+	return false
+
+
+func _drop_basic_food(screen_position: Vector2) -> void:
+	var drop: Dictionary = FoodDropSystem.drop_food(screen_position)
+	if drop.is_empty():
+		_show_message("No basic food available.")
+		return
+	RuntimeLogger.log_action("Basic food dropped: %s" % str(drop.get("token_id", "")))
+	_show_message("Food is sinking.")
+
+
+func _update_food_drops(delta: float) -> void:
+	FoodDropSystem.expire_due_drops()
+	var drops: Array[Dictionary] = GameState.get_food_drops()
+	var drops_by_token: Dictionary = {}
+	for drop in drops:
+		var token_id: String = str(drop.get("token_id", ""))
+		drops_by_token[token_id] = drop
+		if not food_drop_visuals.has(token_id):
+			var food: Label = Label.new()
+			food.text = "●"
+			food.position = Vector2(float(drop.get("x", 0.0)), float(drop.get("y", 0.0)))
+			food.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			food.add_theme_font_size_override("font_size", 38)
+			food.add_theme_color_override("font_color", Color(1.0, 0.91, 0.57, 1.0))
+			food.add_theme_color_override("font_outline_color", Color(0.15, 0.1, 0.12, 0.9))
+			food.add_theme_constant_override("outline_size", 5)
+			food_drop_container.add_child(food)
+			food_drop_visuals[token_id] = food
+		var visual: Label = food_drop_visuals[token_id] as Label
+		var floor_y: float = get_viewport_rect().size.y - 150.0
+		if visual.position.y < floor_y:
+			visual.position.y = minf(floor_y, visual.position.y + float(GameApp.get_balance_value("food_sink_speed", 18.0)) * delta)
+
+	for token_id in food_claims.keys():
+		if not drops_by_token.has(str(token_id)):
+			var former_pet_id: String = str(food_claims[token_id])
+			var former_actor: Node = actors_by_id.get(former_pet_id) as Node
+			if former_actor != null:
+				former_actor.call("clear_food_target", str(token_id))
+			food_claims.erase(token_id)
+
+	var occupied_pet_ids: Dictionary = {}
+	for token_id in food_claims.keys():
+		occupied_pet_ids[str(food_claims[token_id])] = true
+	for drop in drops:
+		var token_id: String = str(drop.get("token_id", ""))
+		if food_claims.has(token_id):
+			continue
+		var pet_id: String = _choose_food_pet(occupied_pet_ids)
+		if pet_id.is_empty():
+			continue
+		food_claims[token_id] = pet_id
+		occupied_pet_ids[pet_id] = true
+
+	var eat_radius: float = float(GameApp.get_balance_value("food_eat_radius", 64.0))
+	for token_id in food_claims.keys():
+		var pet_id: String = str(food_claims[token_id])
+		var actor: Node2D = actors_by_id.get(pet_id) as Node2D
+		var visual: Label = food_drop_visuals.get(token_id) as Label
+		if actor == null or visual == null or not actor.call("can_accept_food"):
+			continue
+		var target_position: Vector2 = actor_anchor.to_local(visual.global_position + visual.size / 2.0)
+		actor.call("set_food_target", str(token_id), target_position)
+		if actor.position.distance_to(target_position) <= eat_radius:
+			actor.call("begin_eating", str(token_id))
+
+
+func _choose_food_pet(occupied_pet_ids: Dictionary) -> String:
+	var lowest_hunger: int = 101
+	var candidates: Array[String] = []
+	for pet_id in GameState.get_active_pet_ids():
+		if occupied_pet_ids.has(pet_id):
+			continue
+		var actor: Node = actors_by_id.get(pet_id) as Node
+		var pet: Dictionary = GameState.get_pet(pet_id)
+		var hunger: int = int(pet.get("hunger", 100))
+		if actor == null or not bool(actor.call("can_accept_food")) or hunger >= 95:
+			continue
+		if hunger < lowest_hunger:
+			lowest_hunger = hunger
+			candidates.clear()
+		candidates.append(pet_id)
+	if candidates.is_empty():
+		return ""
+	return candidates[food_rng.randi_range(0, candidates.size() - 1)]
+
+
+func _on_actor_food_eaten(token_id: String, pet_id: String) -> void:
+	var actor: Node = actors_by_id.get(pet_id) as Node
+	var success: bool = FoodDropSystem.consume_food(token_id, pet_id)
+	food_claims.erase(token_id)
+	var visual: Node = food_drop_visuals.get(token_id) as Node
+	food_drop_visuals.erase(token_id)
+	if is_instance_valid(visual):
+		visual.queue_free()
+	if actor == null:
+		return
+	if success:
+		actor.call("complete_meal", token_id)
+		_show_message("%s ate." % str(GameState.get_pet(pet_id).get("nickname", "JellyCat")))
+	else:
+		actor.call("clear_food_target", token_id)
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	var screen_position: Vector2
+	if event is InputEventScreenTouch:
+		if not (event as InputEventScreenTouch).pressed:
+			return
+		screen_position = (event as InputEventScreenTouch).position
+	elif event is InputEventMouseButton:
+		var mouse_event: InputEventMouseButton = event as InputEventMouseButton
+		if not mouse_event.pressed or mouse_event.button_index != MOUSE_BUTTON_LEFT:
+			return
+		screen_position = mouse_event.position
+	else:
+		return
+	var now: int = Time.get_ticks_msec()
+	if now - last_world_input_at < 80 and screen_position.distance_to(last_world_input_position) < 2.0:
+		return
+	last_world_input_at = now
+	last_world_input_position = screen_position
+	for pet_id in GameState.get_active_pet_ids():
+		var actor: Node2D = actors_by_id.get(pet_id) as Node2D
+		if actor != null and screen_position.distance_to(actor.global_position) <= 110.0:
+			GameState.set_selected_pet_id(pet_id)
+			actor.call("react_to_touch")
+			return
+	_drop_basic_food(screen_position)

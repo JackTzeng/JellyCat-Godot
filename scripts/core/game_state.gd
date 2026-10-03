@@ -27,7 +27,9 @@ func reset_to_default() -> void:
 			"selected_pet_id": "",
 			"capacity": STARTER_CAPACITY,
 			"cleanliness": 100,
-			"facilities": []
+			"facilities": [],
+			"food_drops": [],
+			"food_token_counter": 0
 		},
 		"nursery": {
 			"eggs": [],
@@ -98,6 +100,8 @@ func prepare_data(source: Dictionary) -> Dictionary:
 			return {"ok": false, "reason": "invalid_active_pet_ids", "data": {}}
 		if source_aquarium.has("facilities") and not (source_aquarium["facilities"] is Array):
 			return {"ok": false, "reason": "invalid_facilities", "data": {}}
+		if source_aquarium.has("food_drops") and not (source_aquarium["food_drops"] is Array):
+			return {"ok": false, "reason": "invalid_food_drops", "data": {}}
 	if next_data.has("nursery"):
 		var source_nursery: Dictionary = next_data["nursery"] as Dictionary
 		if source_nursery.has("eggs") and not (source_nursery["eggs"] is Array):
@@ -185,6 +189,38 @@ func prepare_data(source: Dictionary) -> Dictionary:
 	aquarium["active_pet_ids"] = active_ids
 	aquarium["capacity"] = clampi(int(aquarium.get("capacity", STARTER_CAPACITY)), 1, MAX_PET_CAPACITY)
 	aquarium["cleanliness"] = clampi(int(aquarium.get("cleanliness", 100)), 0, 100)
+	var food_drops: Array[Dictionary] = []
+	var seen_food_tokens: Dictionary = {}
+	var max_food_token: int = max(int(aquarium.get("food_token_counter", 0)), 0)
+	for raw_drop in aquarium.get("food_drops", []) as Array:
+		if not (raw_drop is Dictionary):
+			return {"ok": false, "reason": "invalid_food_drop_record", "data": {}}
+		var drop: Dictionary = (raw_drop as Dictionary).duplicate(true)
+		var token_id: String = str(drop.get("token_id", ""))
+		var item_id: String = str(drop.get("item_id", ""))
+		var raw_x: Variant = drop.get("x", null)
+		var raw_y: Variant = drop.get("y", null)
+		var raw_expiry: Variant = drop.get("expires_at", null)
+		if token_id.is_empty() or token_id != token_id.strip_edges() or seen_food_tokens.has(token_id):
+			return {"ok": false, "reason": "invalid_food_token_id", "data": {}}
+		if item_id != "food_basic" or not GameApp.get_table("items").has(item_id):
+			return {"ok": false, "reason": "invalid_food_drop_item", "data": {}}
+		if typeof(raw_x) not in [TYPE_INT, TYPE_FLOAT] or typeof(raw_y) not in [TYPE_INT, TYPE_FLOAT] or typeof(raw_expiry) not in [TYPE_INT, TYPE_FLOAT]:
+			return {"ok": false, "reason": "invalid_food_drop_position", "data": {}}
+		if not is_finite(float(raw_x)) or not is_finite(float(raw_y)) or not is_finite(float(raw_expiry)) or float(raw_expiry) <= 0.0:
+			return {"ok": false, "reason": "invalid_food_drop_position", "data": {}}
+		drop["token_id"] = token_id
+		drop["item_id"] = item_id
+		drop["x"] = float(raw_x)
+		drop["y"] = float(raw_y)
+		drop["expires_at"] = float(raw_expiry)
+		seen_food_tokens[token_id] = true
+		var token_number: String = token_id.trim_prefix("food_")
+		if token_number.is_valid_int():
+			max_food_token = max(max_food_token, int(token_number))
+		food_drops.append(drop)
+	aquarium["food_drops"] = food_drops
+	aquarium["food_token_counter"] = max_food_token
 	var selected_id: String = str(aquarium.get("selected_pet_id", ""))
 	if not active_ids.has(selected_id):
 		aquarium["selected_pet_id"] = active_ids[0] if not active_ids.is_empty() else ""
@@ -322,6 +358,73 @@ func set_aquarium_cleanliness(value: int) -> void:
 	var aquarium: Dictionary = data["aquarium"] as Dictionary
 	aquarium["cleanliness"] = clampi(value, 0, 100)
 	mark_changed()
+
+
+func get_food_drops() -> Array[Dictionary]:
+	var result: Array[Dictionary] = []
+	for drop in (data.get("aquarium", {}) as Dictionary).get("food_drops", []) as Array:
+		if drop is Dictionary:
+			result.append((drop as Dictionary).duplicate(true))
+	return result
+
+
+func reserve_food_drop(item_id: String, position: Vector2, expires_at: float) -> Dictionary:
+	if item_id != "food_basic" or GameState.get_inventory_count(item_id) <= 0:
+		return {}
+	var aquarium: Dictionary = data["aquarium"] as Dictionary
+	var drops: Array = aquarium.get("food_drops", []) as Array
+	var token_number: int = max(int(aquarium.get("food_token_counter", 0)), 0) + 1
+	var token_id: String = "food_%08d" % token_number
+	while _has_food_token(drops, token_id):
+		token_number += 1
+		token_id = "food_%08d" % token_number
+	aquarium["food_token_counter"] = token_number
+	drops.append({
+		"token_id": token_id,
+		"item_id": item_id,
+		"x": position.x,
+		"y": position.y,
+		"expires_at": maxf(expires_at, Time.get_unix_time_from_system() + 1.0)
+	})
+	aquarium["food_drops"] = drops
+	var inventory: Dictionary = data["inventory"] as Dictionary
+	inventory[item_id] = max(0, int(inventory.get(item_id, 0)) - 1)
+	mark_changed()
+	return drops[-1].duplicate(true)
+
+
+func resolve_food_drop(token_id: String, pet_id: String = "", pet_data: Dictionary = {}) -> bool:
+	var aquarium: Dictionary = data["aquarium"] as Dictionary
+	var drops: Array = aquarium.get("food_drops", []) as Array
+	var drop_index: int = -1
+	var drop: Dictionary = {}
+	for index in range(drops.size()):
+		if drops[index] is Dictionary and str((drops[index] as Dictionary).get("token_id", "")) == token_id:
+			drop_index = index
+			drop = (drops[index] as Dictionary).duplicate(true)
+			break
+	if drop_index < 0:
+		return false
+	if pet_data.is_empty():
+		var item_id: String = str(drop.get("item_id", ""))
+		var inventory: Dictionary = data["inventory"] as Dictionary
+		inventory[item_id] = int(inventory.get(item_id, 0)) + 1
+	else:
+		var pets: Dictionary = data["pets"] as Dictionary
+		if pet_id.is_empty() or not pets.has(pet_id) or not get_active_pet_ids().has(pet_id) or str(pet_data.get("pet_id", "")) != pet_id:
+			return false
+		pets[pet_id] = _normalize_pet(pet_id, pet_data)
+	drops.remove_at(drop_index)
+	aquarium["food_drops"] = drops
+	mark_changed()
+	return true
+
+
+func _has_food_token(drops: Array, token_id: String) -> bool:
+	for drop in drops:
+		if drop is Dictionary and str((drop as Dictionary).get("token_id", "")) == token_id:
+			return true
+	return false
 
 
 func get_nursery_eggs() -> Array[Dictionary]:
@@ -572,6 +675,10 @@ func _ensure_root_defaults(target: Dictionary) -> void:
 		aquarium["cleanliness"] = 100
 	if not aquarium.has("facilities"):
 		aquarium["facilities"] = []
+	if not aquarium.has("food_drops"):
+		aquarium["food_drops"] = []
+	if not aquarium.has("food_token_counter"):
+		aquarium["food_token_counter"] = 0
 	if not target.get("nursery") is Dictionary:
 		target["nursery"] = {}
 	var nursery: Dictionary = target["nursery"] as Dictionary

@@ -1,7 +1,6 @@
-[gd_scene load_steps=6 format=3]
+[gd_scene load_steps=5 format=3]
 
 [ext_resource type="Script" path="res://scripts/controllers/aquarium_controller.gd" id="1_aqua"]
-[ext_resource type="PackedScene" path="res://scenes/pet/jellycat_actor.tscn" id="2_actor"]
 [ext_resource type="PackedScene" path="res://scenes/ui/runtime_log_panel.tscn" id="3_log"]
 [ext_resource type="Texture2D" path="res://assets/backgrounds/aquarium_tank.png" id="4_bg"]
 [ext_resource type="PackedScene" path="res://scenes/ui/shop_panel.tscn" id="5_shop"]
@@ -29,6 +28,14 @@ anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 mouse_filter = 1
+
+[node name="FoodDropContainer" type="Control" parent="."]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
 
 [node name="StatusBackdrop" type="ColorRect" parent="."]
 layout_mode = 1
@@ -154,9 +161,6 @@ text = "Food x0\nCookie x0\nMedicine x0"
 unique_name_in_owner = true
 position = Vector2(836, 470)
 
-[node name="JellyCatActor" parent="ActorAnchor" instance=ExtResource("2_actor")]
-unique_name_in_owner = true
-
 [node name="RuntimeLogPanel" parent="." instance=ExtResource("3_log")]
 unique_name_in_owner = true
 layout_mode = 1
@@ -221,7 +225,7 @@ theme_override_constants/v_separation = 12
 unique_name_in_owner = true
 layout_mode = 2
 custom_minimum_size = Vector2(310, 50)
-text = "Feed"
+text = "Drop Food"
 
 [node name="CookieButton" type="Button" parent="ActionBar"]
 unique_name_in_owner = true

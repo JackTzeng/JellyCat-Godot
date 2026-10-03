@@ -135,16 +135,28 @@ static func apply_offline_care_decay(elapsed_seconds: int) -> void:
 	_log_int_change("tank cleanliness", old_cleanliness, next_cleanliness)
 
 
-static func _consume_food_for_pet(pet_id: String, item_id: String, consume_item: bool) -> bool:
+static func build_fed_pet_data(pet_id: String, item_id: String) -> Dictionary:
 	var item: Dictionary = _get_table_entry("items", item_id)
 	var pet: Dictionary = GameState.get_pet(pet_id)
 	if item.is_empty() or pet.is_empty():
 		RuntimeLogger.log_error("Invalid food target: %s" % pet_id)
-		return false
+		return {}
 	var old_hunger: int = int(pet.get("hunger", 0))
 	var old_mood: int = int(pet.get("mood", 0))
 	var old_exp: int = int(pet.get("growth_exp", 0))
 	if old_hunger >= 100 and old_mood >= 100 and int(item.get("growth_exp_add", 0)) <= 0:
+		return {}
+	pet["hunger"] = _clamp_stat(old_hunger + int(item.get("hunger_add", 0)), "max_hunger")
+	pet["mood"] = _clamp_stat(old_mood + int(item.get("mood_add", 0)), "max_mood")
+	pet["growth_exp"] = old_exp + int(item.get("growth_exp_add", 0))
+	pet["last_fed_at"] = Time.get_datetime_string_from_system()
+	return pet
+
+
+static func _consume_food_for_pet(pet_id: String, item_id: String, consume_item: bool) -> bool:
+	var old_pet: Dictionary = GameState.get_pet(pet_id)
+	var next_pet: Dictionary = build_fed_pet_data(pet_id, item_id)
+	if next_pet.is_empty():
 		return false
 	if consume_item:
 		var old_count: int = GameState.get_inventory_count(item_id)
@@ -152,17 +164,13 @@ static func _consume_food_for_pet(pet_id: String, item_id: String, consume_item:
 			RuntimeLogger.log_info("No item available: %s" % item_id)
 			return false
 		GameState.set_inventory_count(item_id, old_count - 1)
-	pet["hunger"] = _clamp_stat(old_hunger + int(item.get("hunger_add", 0)), "max_hunger")
-	pet["mood"] = _clamp_stat(old_mood + int(item.get("mood_add", 0)), "max_mood")
-	pet["growth_exp"] = old_exp + int(item.get("growth_exp_add", 0))
-	pet["last_fed_at"] = Time.get_datetime_string_from_system()
-	if not GameState.set_pet(pet_id, pet):
+	if not GameState.set_pet(pet_id, next_pet):
 		if consume_item:
 			GameState.set_inventory_count(item_id, GameState.get_inventory_count(item_id) + 1)
 		return false
-	_log_int_change("hunger", old_hunger, int(pet.get("hunger", 0)))
-	_log_int_change("mood", old_mood, int(pet.get("mood", 0)))
-	_log_int_change("growth_exp", old_exp, int(pet.get("growth_exp", 0)))
+	_log_int_change("hunger", int(old_pet.get("hunger", 0)), int(next_pet.get("hunger", 0)))
+	_log_int_change("mood", int(old_pet.get("mood", 0)), int(next_pet.get("mood", 0)))
+	_log_int_change("growth_exp", int(old_pet.get("growth_exp", 0)), int(next_pet.get("growth_exp", 0)))
 	return true
 
 
