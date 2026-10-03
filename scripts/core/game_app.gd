@@ -14,8 +14,9 @@ func boot() -> void:
 	else:
 		RuntimeLogger.log_save("No save found")
 	var elapsed_seconds: int = int(TimeManager.seconds_since_datetime_string(GameState.get_timestamp("last_saved_at")))
-	CareSystem.apply_offline_care_decay(elapsed_seconds)
-	CurrencySystem.apply_offline_income(elapsed_seconds)
+	# Autoloads parse before class_name discovery on a fresh import. Resolve at boot.
+	load("res://scripts/systems/care_system.gd").apply_offline_care_decay(elapsed_seconds)
+	load("res://scripts/systems/currency_system.gd").apply_offline_income(elapsed_seconds)
 	GameState.set_timestamp("last_opened_at", TimeManager.now_string(), false)
 	GameState.set_timestamp("last_passive_coin_at", TimeManager.now_string(), false)
 	loaded = true

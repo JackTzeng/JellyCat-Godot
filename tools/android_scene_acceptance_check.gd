@@ -1,6 +1,7 @@
 extends Node
 
 const ISOLATED_SAVE_PATH: String = "user://android_build_gate_save.json"
+const BOOT_SCENE: String = "res://scenes/boot/boot.tscn"
 const TITLE_SCENE: String = "res://scenes/title/title.tscn"
 const EGG_SELECT_SCENE: String = "res://scenes/egg_select/egg_select.tscn"
 const HATCH_SCENE: String = "res://scenes/hatch/hatch.tscn"
@@ -26,20 +27,25 @@ func _run() -> void:
 	var game_app: Variant = get_tree().root.get_node("GameApp")
 	game_app.load_data_tables()
 
-	var title: Node = _load_scene(TITLE_SCENE)
-	if title == null:
+	var boot: Node = _load_scene(BOOT_SCENE)
+	if boot == null:
 		_finish()
 		return
-	get_tree().root.add_child(title)
-	get_tree().current_scene = title
-	await get_tree().process_frame
+	get_tree().root.add_child(boot)
+	get_tree().current_scene = boot
+	var reached_scene: bool = await _wait_for_scene(TITLE_SCENE)
+	if not reached_scene or not bool(game_app.loaded):
+		_fail("Production Boot did not finish GameApp boot and load Title")
+		_finish()
+		return
+	var title: Node = get_tree().current_scene
 	var new_game_button: Button = title.get_node_or_null("%NewGameButton") as Button
 	if new_game_button == null:
 		_fail("Title scene did not create its New Game button")
 		_finish()
 		return
 	new_game_button.pressed.emit()
-	var reached_scene: bool = await _wait_for_scene(EGG_SELECT_SCENE)
+	reached_scene = await _wait_for_scene(EGG_SELECT_SCENE)
 	if not reached_scene:
 		_fail("New Game did not load the egg selection scene")
 		_finish()
@@ -152,7 +158,7 @@ func _finish() -> void:
 			exit_code = 1
 		save_manager.use_production_save_path()
 	if exit_code == 0:
-		print("ANDROID_SCENE_ACCEPTANCE_OK scenes=4 ui_actions=13 isolated_save=true")
+		print("ANDROID_SCENE_ACCEPTANCE_OK scenes=5 ui_actions=13 production_boot=true isolated_save=true")
 	else:
 		for failure in failures:
 			push_error("ANDROID_SCENE_ACCEPTANCE_FAILURE: %s" % failure)
