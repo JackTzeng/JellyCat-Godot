@@ -1,6 +1,7 @@
 extends Node
 
 const ISOLATED_SAVE_PATH: String = "user://jellycat_g1_gameplay_save.json"
+const DOS_STYLE = preload("res://scripts/ui/dos_style.gd")
 
 var checks: int = 0
 var failures: Array[String] = []
@@ -74,6 +75,20 @@ func _run() -> void:
 	var food_container: Control = aquarium.get_node("%FoodDropContainer") as Control
 	var status_backdrop: Control = aquarium.get_node("%StatusBackdrop") as Control
 	var action_layer: Control = aquarium.get_node("%ActionBar") as Control
+	var water_background: Control = aquarium.get_node("%Water") as Control
+	var overlay_layer: Control = aquarium.get_node("%ModalOverlay") as Control
+	var modal_input_shield: ColorRect = aquarium.get_node("%ModalInputShield") as ColorRect
+	var native_tank_script: Script = load("res://scripts/ui/native_tank.gd") as Script
+	var stage_sprite: Sprite2D = null
+	var current_pet_ids: Array[String] = GameState.get_active_pet_ids()
+	if not current_pet_ids.is_empty():
+		var first_stage_actor: Node = actors.get(current_pet_ids[0]) as Node
+		if first_stage_actor != null:
+			stage_sprite = first_stage_actor.get_node("%Sprite") as Sprite2D
+	_expect(water_background.get_script() == native_tank_script and water_background.mouse_filter == Control.MOUSE_FILTER_IGNORE, "Native DOS tank replaces the soft background and ignores input")
+	_expect(stage_sprite != null and stage_sprite.texture_filter == CanvasItem.TEXTURE_FILTER_NEAREST, "Official 64-pixel stage art uses nearest-neighbor sampling")
+	_expect(overlay_layer.get_index() > action_layer.get_index() and overlay_layer.mouse_filter == Control.MOUSE_FILTER_IGNORE and modal_input_shield.mouse_filter == Control.MOUSE_FILTER_STOP and overlay_layer.get_index() + 1 == aquarium.get_child_count() and aquarium.get_node("%ShopPanel").get_parent() == overlay_layer and aquarium.get_node("%ShopPanel").get_index() > modal_input_shield.get_index(), "Modal shield and Shop sit above the HUD in input-safe order")
+	_expect(not (aquarium.get_node("%RuntimeLogPanel") as Control).visible and (aquarium.get_node("%LogToggleButton") as Button).visible == OS.is_debug_build(), "Runtime log starts hidden and is explicitly available only in debug builds")
 	var world_is_below_hud: bool = aquarium.get_node("%Water").get_index() < actor_anchor.get_index()
 	world_is_below_hud = world_is_below_hud and actor_anchor.get_index() < food_container.get_index() and food_container.get_index() < coin_container.get_index()
 	world_is_below_hud = world_is_below_hud and coin_container.get_index() < status_backdrop.get_index() and coin_container.get_index() < action_layer.get_index()
@@ -130,6 +145,12 @@ func _run() -> void:
 	visual_probe.call("set_stage", prior_stage, "normal_jellycat")
 	_expect(stages_grow_within_limit, "Five stage textures grow by visible bounds and never exceed 25% with animation")
 	var probe_sprite: Sprite2D = visual_probe.get_node("%Sprite") as Sprite2D
+	var actor_touch_target: float = DOS_STYLE.get_touch_target_height(aquarium.get_viewport_rect().size)
+	var visible_pixel_rect: Rect2 = visual_probe.call("_get_texture_content_rect")
+	var touch_probe_local: Vector2 = visible_pixel_rect.get_center() + Vector2(visible_pixel_rect.size.x * 0.5 + actor_touch_target * 0.49 / maxf(float(visual_probe.get("base_scale")), 0.001), 0.0)
+	var touch_probe_screen: Vector2 = probe_sprite.to_global(touch_probe_local)
+	var low_resolution_hitbox_kept: bool = bool(visual_probe.call("contains_screen_point", touch_probe_screen, actor_touch_target))
+	_expect(low_resolution_hitbox_kept, "Pet hit area stays at the 56dp viewport-scaled target outside the pixel body")
 	var probe_base_scale: float = float(visual_probe.get("base_scale"))
 	visual_probe.set("food_drop_id", "visual-scale-probe")
 	visual_probe.set("behavior_state", "eat")
@@ -173,8 +194,17 @@ func _run() -> void:
 	var rename_dialog: ConfirmationDialog = aquarium.get_node("%RenameDialog") as ConfirmationDialog
 	_expect(rename_dialog.confirmed.is_connected(Callable(aquarium, "_on_rename_confirmed")), "Rename dialog is connected to the selected pet")
 	rename_button.pressed.emit()
+	var rename_shield_active: bool = modal_input_shield.visible
+	var food_before_rename_touch: int = GameState.get_food_drops().size()
+	var rename_touch: InputEventScreenTouch = InputEventScreenTouch.new()
+	var rename_water_rect: Rect2 = aquarium.get("active_water_rect")
+	rename_touch.pressed = true
+	rename_touch.position = rename_water_rect.get_center()
+	aquarium.call("_unhandled_input", rename_touch)
+	var rename_blocks_world: bool = GameState.get_food_drops().size() == food_before_rename_touch
 	nickname_edit.text = "Mochi"
 	rename_dialog.confirmed.emit()
+	_expect(rename_shield_active and rename_blocks_world and not modal_input_shield.visible, "Rename modal shields world input and releases it when closed")
 	_expect(str(GameState.get_pet(selected_id).get("nickname", "")) == "Mochi", "Rename dialog persists the selected pet nickname")
 	_expect(str((aquarium.get_node("%EvolutionLabel") as Label).text).contains("EXP left"), "Selected pet UI shows EXP remaining to the next stage")
 	var roster_buttons: Dictionary = aquarium.get("roster_buttons_by_id") as Dictionary
@@ -225,7 +255,6 @@ func _run() -> void:
 		_expect(int(GameState.get_pet(pet_id).get("hunger", 0)) > int(hunger_before_by_pet.get(pet_id, 100)), "%s receives a fair feed" % pet_id)
 
 	_expect(SaveManager.save_game(), "Three-pet Aquarium state saves to the isolated file")
-	var actor_anchor: Node2D = aquarium.get_node("%ActorAnchor") as Node2D
 	var pending_drop: Dictionary = FoodDropSystem.drop_food(actor_anchor.global_position + Vector2(140.0, 20.0))
 	var pending_token: String = str(pending_drop.get("token_id", ""))
 	var inventory_with_pending_drop: int = GameState.get_inventory_count("food_basic")
@@ -291,8 +320,23 @@ func _run() -> void:
 	actions_before_panels["shop"] = -999999.0
 	actions_before_panels["log_toggle"] = -999999.0
 	aquarium.set("last_action_time_by_name", actions_before_panels)
+	var runtime_log_panel: Control = aquarium.get_node("%RuntimeLogPanel") as Control
+	var shop_panel: Control = aquarium.get_node("%ShopPanel") as Control
+	var log_was_open: bool = false
+	if OS.is_debug_build():
+		(aquarium.get_node("%LogToggleButton") as Button).pressed.emit()
+		log_was_open = runtime_log_panel.visible
 	aquarium.call("_on_shop_pressed")
-	aquarium.call("_on_log_toggle_pressed")
+	var modal_food_before: int = GameState.get_food_drops().size()
+	var modal_touch: InputEventScreenTouch = InputEventScreenTouch.new()
+	var modal_water_rect: Rect2 = aquarium.get("active_water_rect")
+	modal_touch.pressed = true
+	modal_touch.position = modal_water_rect.get_center()
+	aquarium.call("_unhandled_input", modal_touch)
+	_expect(shop_panel.visible and not runtime_log_panel.visible and modal_input_shield.visible and (not OS.is_debug_build() or log_was_open) and GameState.get_food_drops().size() == modal_food_before, "Shop closes the debug log and blocks background water input")
+	var close_shop_button: Button = shop_panel.get_node("%CloseShopButton") as Button
+	close_shop_button.pressed.emit()
+	_expect(not shop_panel.visible and not modal_input_shield.visible and not runtime_log_panel.visible and RuntimeLogger.get_log_text().contains("Shop clicked"), "Closing Shop restores the aquarium and preserves hidden log contents")
 	var actor_instances_after_panels: Dictionary = aquarium.get("actors_by_id") as Dictionary
 	var actors_stayed_live: bool = true
 	for pet_id in actor_instances_before_panels.keys():

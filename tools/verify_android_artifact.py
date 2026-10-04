@@ -13,6 +13,11 @@ import sys
 import zipfile
 from pathlib import Path
 
+# Avoid generated .pyc files entering the measured source tree.
+sys.dont_write_bytecode = True
+
+from android_asset_gate import verify_asset_sources, verify_packaged_assets
+
 
 def fail(message: str) -> None:
     raise SystemExit(f"ANDROID_ARTIFACT_FAIL: {message}")
@@ -22,6 +27,10 @@ apk_path = Path(sys.argv[1])
 project_root = Path(sys.argv[2])
 if not apk_path.is_file() or apk_path.stat().st_size < 100_000:
     fail("APK is missing or unexpectedly small")
+
+asset_error, source_imported_textures = verify_asset_sources(project_root, require_cooked=False)
+if asset_error:
+    fail(asset_error)
 
 game_app_path = project_root / "scripts/core/game_app.gd"
 if not game_app_path.is_file():
@@ -47,29 +56,6 @@ for table_name in table_names:
         fail(f"GameApp table root is not an object: {table_name}")
     source_tables[f"assets/data/{table_name}"] = table_bytes
 
-png_paths = [
-    project_root / "assets/backgrounds/aquarium_tank.png",
-    *(
-        project_root / f"assets/jellycats/normal_jellycat/stages/stage_{stage}.png"
-        for stage in range(1, 6)
-    ),
-]
-png_signature = b"\x89PNG\r\n\x1a\n"
-source_imported_textures: dict[Path, str] = {}
-for png_path in png_paths:
-    if not png_path.is_file() or png_path.stat().st_size < 100_000:
-        fail(f"Full-resolution project PNG is missing: {png_path}")
-    if png_path.read_bytes()[:8] != png_signature:
-        fail(f"Project asset is not a PNG: {png_path}")
-    import_path = Path(f"{png_path}.import")
-    if not import_path.is_file():
-        fail(f"Godot import remap is missing for source PNG: {import_path}")
-    import_text = import_path.read_text(encoding="utf-8")
-    match = re.search(r'^path="res://([^"\r\n]+\.ctex)"$', import_text, re.MULTILINE)
-    if not match:
-        fail(f"Godot import remap has no CTEX output path: {import_path}")
-    source_imported_textures[png_path] = f"assets/{match.group(1)}"
-
 with zipfile.ZipFile(apk_path) as apk:
     bad_member = apk.testzip()
     if bad_member:
@@ -89,17 +75,13 @@ with zipfile.ZipFile(apk_path) as apk:
         if not isinstance(packed_json, dict):
             fail(f"APK JSON table root is not an object: {apk_entry}")
 
-    packaged_textures = []
-    for png_path, texture_entry in source_imported_textures.items():
-        if texture_entry not in names:
-            fail(f"APK is missing imported texture for {png_path}: {texture_entry}")
-        if apk.getinfo(texture_entry).file_size == 0:
-            fail(f"APK imported texture is empty: {texture_entry}")
-        packaged_textures.append(texture_entry)
+    asset_error = verify_packaged_assets(apk, project_root, source_imported_textures)
+    if asset_error:
+        fail(asset_error)
 
 print(
     "ANDROID_ARTIFACT_OK "
     f"tables={','.join(table_names)} "
-    f"source_pngs={len(png_paths)} "
-    f"packaged_imported_textures={len(packaged_textures)}"
+    f"source_pngs={len(source_imported_textures)} "
+    f"packaged_imported_textures={len(source_imported_textures)} native_tank=1"
 )

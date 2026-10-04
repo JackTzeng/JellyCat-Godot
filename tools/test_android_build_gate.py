@@ -7,11 +7,25 @@ import argparse
 import hashlib
 import os
 import re
+import struct
 import sys
 import tempfile
 import time
 import unittest
+import zipfile
+import zlib
 from pathlib import Path, PurePosixPath
+
+# Avoid generated .pyc files entering the measured source tree.
+sys.dont_write_bytecode = True
+
+from android_asset_gate import (
+    NATIVE_TANK,
+    STAGE_PNGS,
+    verify_asset_sources,
+    verify_imports,
+    verify_packaged_assets,
+)
 
 
 GODOT_ERROR = re.compile(r"(?im)^\s*(?:SCRIPT ERROR:|Parse Error:|ERROR:)")
@@ -56,32 +70,6 @@ def source_sha256(root: Path) -> str:
     return digest.hexdigest()
 
 
-def verify_imports(root: Path) -> str | None:
-    pngs = [
-        root / "assets/backgrounds/aquarium_tank.png",
-        *(root / f"assets/jellycats/normal_jellycat/stages/stage_{stage}.png" for stage in range(1, 6)),
-    ]
-    for png in pngs:
-        remap = Path(f"{png}.import")
-        if not remap.is_file():
-            return f"missing PNG import remap: {remap}"
-        match = re.search(r'^path="res://([^"\r\n]+\.ctex)"$', remap.read_text(encoding="utf-8"), re.MULTILINE)
-        if not match:
-            return f"missing CTEX path in import remap: {remap}"
-        imported = root / match.group(1)
-        if not imported.is_file() or imported.stat().st_size == 0:
-            return f"Godot PNG import output is missing or empty: {imported}"
-    cache = root / ".godot/global_script_class_cache.cfg"
-    if not cache.is_file():
-        return f"Godot global script class cache missing: {cache}"
-    cache_text = cache.read_text(encoding="utf-8")
-    expected_classes = ("CareSystem", "CurrencySystem", "EggSystem", "HatchSystem", "EvolutionSystem")
-    missing = [name for name in expected_classes if name not in cache_text]
-    if missing:
-        return "Godot global script class cache is incomplete: " + ", ".join(missing)
-    return None
-
-
 def verify_apk(path: Path, started_ns: int) -> tuple[str | None, str | None]:
     if path.suffix.lower() != ".apk":
         return "artifact path must end in .apk", None
@@ -103,6 +91,103 @@ def verify_apk(path: Path, started_ns: int) -> tuple[str | None, str | None]:
 
 
 class BuildGateTests(unittest.TestCase):
+    def create_asset_fixture(self, root: Path) -> None:
+        project = Path(__file__).resolve().parents[1]
+        for relative, _, _ in STAGE_PNGS:
+            stage = Path(relative)
+            target = root / stage
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes((project / PurePosixPath(relative)).read_bytes())
+            ctex = f".godot/imported/{stage.stem}-fixture.ctex"
+            Path(f"{target}.import").write_text(f'[remap]\npath="res://{ctex}"\n', encoding="utf-8")
+            cooked = root / ctex
+            cooked.parent.mkdir(parents=True, exist_ok=True)
+            cooked.write_bytes(b"fixture ctex")
+
+        native_path = root / NATIVE_TANK[0]
+        native_path.parent.mkdir(parents=True, exist_ok=True)
+        native_path.write_bytes((project / PurePosixPath(NATIVE_TANK[0])).read_bytes())
+        cache = root / ".godot/global_script_class_cache.cfg"
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_text("CareSystem CurrencySystem EggSystem HatchSystem EvolutionSystem", encoding="utf-8")
+
+    def test_approved_assets_and_pck_gate_pass(self) -> None:
+        self.assertEqual(len(STAGE_PNGS), 5)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.create_asset_fixture(root)
+            self.assertIsNone(verify_imports(root))
+            error, imported = verify_asset_sources(root, require_cooked=False)
+            self.assertIsNone(error)
+            self.assertEqual(len(imported), 5)
+
+            apk_path = root / "assets.apk"
+            with zipfile.ZipFile(apk_path, "w") as apk:
+                for _, ctex in imported:
+                    apk.writestr(f"assets/{ctex}", b"fixture ctex")
+                apk.write(root / NATIVE_TANK[0], f"assets/{NATIVE_TANK[0]}")
+            with zipfile.ZipFile(apk_path) as apk:
+                self.assertIsNone(verify_packaged_assets(apk, root, imported))
+
+            compiled_apk = root / "compiled-script.apk"
+            with zipfile.ZipFile(compiled_apk, "w") as apk:
+                for _, ctex in imported:
+                    apk.writestr(f"assets/{ctex}", b"fixture ctex")
+                apk.writestr("assets/scripts/ui/native_tank.gdc", b"compiled fixture script")
+            with zipfile.ZipFile(compiled_apk) as apk:
+                self.assertIsNone(verify_packaged_assets(apk, root, imported))
+
+            missing_ctex_apk = root / "missing-ctex.apk"
+            with zipfile.ZipFile(missing_ctex_apk, "w") as apk:
+                for _, ctex in imported[:-1]:
+                    apk.writestr(f"assets/{ctex}", b"fixture ctex")
+                apk.write(root / NATIVE_TANK[0], f"assets/{NATIVE_TANK[0]}")
+            with zipfile.ZipFile(missing_ctex_apk) as apk:
+                self.assertIn("APK is missing imported texture", verify_packaged_assets(apk, root, imported) or "")
+
+            missing_native_apk = root / "missing-native.apk"
+            with zipfile.ZipFile(missing_native_apk, "w") as apk:
+                for _, ctex in imported:
+                    apk.writestr(f"assets/{ctex}", b"fixture ctex")
+            with zipfile.ZipFile(missing_native_apk) as apk:
+                self.assertIn("APK is missing approved native tank source", verify_packaged_assets(apk, root, imported) or "")
+
+    def test_asset_gate_rejects_unapproved_or_missing_assets(self) -> None:
+        stage_one = Path(STAGE_PNGS[0][0])
+
+        def wrong_sha(root: Path) -> None:
+            data = bytearray((root / stage_one).read_bytes())
+            offset = 8
+            while data[offset + 4 : offset + 8] != b"IDAT":
+                offset += 12 + int.from_bytes(data[offset : offset + 4], "big")
+            length = int.from_bytes(data[offset : offset + 4], "big")
+            data[offset + 8] ^= 1
+            crc = zlib.crc32(data[offset + 4 : offset + 8 + length]) & 0xFFFFFFFF
+            struct.pack_into(">I", data, offset + 8 + length, crc)
+            (root / stage_one).write_bytes(data)
+
+        def wrong_dimensions(root: Path) -> None:
+            data = bytearray((root / stage_one).read_bytes())
+            struct.pack_into(">I", data, 16, 65)
+            crc = zlib.crc32(data[12:29]) & 0xFFFFFFFF
+            struct.pack_into(">I", data, 29, crc)
+            (root / stage_one).write_bytes(data)
+
+        cases = (
+            ("missing stage", lambda root: (root / STAGE_PNGS[-1][0]).unlink(), "approved stage PNG is missing"),
+            ("wrong sha", wrong_sha, "SHA256 mismatch"),
+            ("truncated png", lambda root: (root / stage_one).write_bytes((root / stage_one).read_bytes()[:24]), "PNG chunk is truncated"),
+            ("wrong dimensions", wrong_dimensions, "dimensions are not 64x64"),
+            ("missing native", lambda root: (root / NATIVE_TANK[0]).unlink(), "native tank source is missing"),
+            ("missing cooked resource", lambda root: (root / ".godot/imported/stage_3-fixture.ctex").unlink(), "import output is missing or empty"),
+        )
+        for label, mutate, expected_error in cases:
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                self.create_asset_fixture(root)
+                mutate(root)
+                self.assertIn(expected_error, verify_imports(root) or "")
+
     def test_source_sha_uses_relative_posix_path_order(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -206,7 +291,7 @@ def main() -> int:
         if error:
             print(f"ANDROID_GATE_FAIL imports: {error}", file=sys.stderr)
             return 1
-        print("ANDROID_IMPORT_OK ctex_count=6 global_classes=5")
+        print("ANDROID_IMPORT_OK ctex_count=5 global_classes=5")
         return 0
 
     error, digest = verify_apk(args.apk, args.started_ns)

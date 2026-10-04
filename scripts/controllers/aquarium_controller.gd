@@ -25,6 +25,8 @@ const ACTION_DEBOUNCE_SECONDS: float = 0.3
 @onready var shop_panel: Control = %ShopPanel
 @onready var coin_bubble_container: Control = %CoinBubbleContainer
 @onready var runtime_log_panel: Control = %RuntimeLogPanel
+@onready var log_toggle_button: Button = %LogToggleButton
+@onready var modal_input_shield: ColorRect = %ModalInputShield
 @onready var pet_roster: HBoxContainer = %PetRoster
 @onready var pet_roster_backdrop: ColorRect = %PetRosterBackdrop
 @onready var status_backdrop: ColorRect = %StatusBackdrop
@@ -52,6 +54,7 @@ var food_rng: RandomNumberGenerator = RandomNumberGenerator.new()
 var last_world_input_at: int = -1000
 var last_world_input_position: Vector2 = Vector2.ZERO
 var active_water_rect: Rect2 = Rect2()
+var rename_modal_active: bool = false
 
 func _ready() -> void:
 	DOS_STYLE.apply(self)
@@ -65,10 +68,15 @@ func _ready() -> void:
 	%EvolveButton.pressed.connect(_on_evolve_pressed)
 	%ShopButton.pressed.connect(_on_shop_pressed)
 	%DailyFoodButton.pressed.connect(_on_daily_food_pressed)
-	%LogToggleButton.pressed.connect(_on_log_toggle_pressed)
+	log_toggle_button.pressed.connect(_on_log_toggle_pressed)
+	log_toggle_button.visible = OS.is_debug_build()
+	runtime_log_panel.visible = false
+	shop_panel.visibility_changed.connect(_sync_modal_input_shield)
 	nursery_button.pressed.connect(_on_nursery_pressed)
 	rename_button.pressed.connect(_on_rename_pressed)
 	rename_dialog.confirmed.connect(_on_rename_confirmed)
+	rename_dialog.canceled.connect(_close_rename_dialog)
+	rename_dialog.close_requested.connect(_close_rename_dialog)
 	get_viewport().size_changed.connect(_apply_responsive_layout)
 	_apply_responsive_layout()
 	FoodDropSystem.expire_due_drops()
@@ -172,12 +180,23 @@ func _on_evolve_pressed() -> void:
 
 
 func _on_shop_pressed() -> void:
-	if not _accept_action("shop"):
+	if rename_modal_active or not _accept_action("shop"):
 		return
 	RuntimeLogger.log_action("Shop clicked")
-	shop_panel.visible = not shop_panel.visible
-	if shop_panel.visible:
+	_set_shop_open(not shop_panel.visible)
+
+
+func _set_shop_open(should_open: bool) -> void:
+	if should_open:
+		runtime_log_panel.visible = false
+	shop_panel.visible = should_open
+	_sync_modal_input_shield()
+	if should_open:
 		shop_panel.call("refresh")
+
+
+func _sync_modal_input_shield() -> void:
+	modal_input_shield.visible = shop_panel.visible or rename_modal_active
 
 
 func _on_daily_food_pressed() -> void:
@@ -200,9 +219,12 @@ func _on_daily_food_pressed() -> void:
 
 
 func _on_log_toggle_pressed() -> void:
-	if not _accept_action("log_toggle"):
+	if rename_modal_active or not OS.is_debug_build() or not _accept_action("log_toggle"):
 		return
-	runtime_log_panel.visible = not runtime_log_panel.visible
+	var should_show: bool = not runtime_log_panel.visible
+	if should_show:
+		_set_shop_open(false)
+	runtime_log_panel.visible = should_show
 	_refresh(false)
 
 
@@ -223,15 +245,27 @@ func _select_next_unhatched_egg() -> bool:
 
 
 func _on_rename_pressed() -> void:
+	if shop_panel.visible or rename_modal_active:
+		return
 	var pet: Dictionary = GameState.get_pet(GameState.get_selected_pet_id())
 	if pet.is_empty():
 		return
+	runtime_log_panel.visible = false
 	nickname_edit.text = str(pet.get("nickname", "JellyCat"))
+	rename_modal_active = true
+	_sync_modal_input_shield()
 	rename_dialog.popup_centered(Vector2i(440, 190))
 	nickname_edit.grab_focus()
 
 
+func _close_rename_dialog() -> void:
+	rename_modal_active = false
+	rename_dialog.hide()
+	_sync_modal_input_shield()
+
+
 func _on_rename_confirmed() -> void:
+	_close_rename_dialog()
 	var pet_id: String = GameState.get_selected_pet_id()
 	var pet: Dictionary = GameState.get_pet(pet_id)
 	var nickname: String = nickname_edit.text.strip_edges().left(18)
@@ -670,6 +704,8 @@ func _on_actor_food_eaten(token_id: String, pet_id: String) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if modal_input_shield.visible:
+		return
 	var screen_position: Vector2
 	if event is InputEventScreenTouch:
 		if not (event as InputEventScreenTouch).pressed:

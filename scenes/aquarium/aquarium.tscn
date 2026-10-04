@@ -2,7 +2,7 @@
 
 [ext_resource type="Script" path="res://scripts/controllers/aquarium_controller.gd" id="1_aqua"]
 [ext_resource type="PackedScene" path="res://scenes/ui/runtime_log_panel.tscn" id="3_log"]
-[ext_resource type="Texture2D" path="res://assets/backgrounds/aquarium_tank.png" id="4_bg"]
+[ext_resource type="Script" path="res://scripts/ui/native_tank.gd" id="4_tank"]
 [ext_resource type="PackedScene" path="res://scenes/ui/shop_panel.tscn" id="5_shop"]
 
 [node name="Aquarium" type="Control"]
@@ -13,15 +13,14 @@ anchor_bottom = 1.0
 mouse_filter = 2
 script = ExtResource("1_aqua")
 
-[node name="Water" type="TextureRect" parent="."]
+[node name="Water" type="Control" parent="."]
+unique_name_in_owner = true
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
-texture = ExtResource("4_bg")
-expand_mode = 1
-stretch_mode = 6
 mouse_filter = 2
+script = ExtResource("4_tank")
 
 [node name="ActorAnchor" type="Node2D" parent="."]
 unique_name_in_owner = true
@@ -184,6 +183,7 @@ text = "Food x0\nCookie x0\nMedicine x0"
 
 [node name="RuntimeLogPanel" parent="." instance=ExtResource("3_log")]
 unique_name_in_owner = true
+visible = false
 layout_mode = 1
 anchors_preset = 10
 anchor_right = 1.0
@@ -191,17 +191,6 @@ offset_left = 28.0
 offset_top = 590.0
 offset_right = -884.0
 offset_bottom = 900.0
-
-[node name="ShopPanel" parent="." instance=ExtResource("5_shop")]
-unique_name_in_owner = true
-visible = false
-layout_mode = 1
-anchors_preset = 10
-anchor_right = 1.0
-offset_left = 28.0
-offset_top = 330.0
-offset_right = -1144.0
-offset_bottom = 570.0
 
 [node name="MessageLabel" type="Label" parent="."]
 unique_name_in_owner = true
@@ -314,3 +303,32 @@ unique_name_in_owner = true
 custom_minimum_size = Vector2(360, 56)
 max_length = 18
 placeholder_text = "JellyCat"
+
+[node name="ModalOverlay" type="Control" parent="."]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+
+[node name="ModalInputShield" type="ColorRect" parent="ModalOverlay"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 0
+color = Color(0.0, 0.0, 0.0, 0.32)
+
+[node name="ShopPanel" parent="ModalOverlay" instance=ExtResource("5_shop")]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_left = 28.0
+offset_top = 330.0
+offset_right = -1144.0
+offset_bottom = 570.0
