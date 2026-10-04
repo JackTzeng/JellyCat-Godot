@@ -14,15 +14,15 @@ func _ready() -> void:
 	refresh()
 
 func _on_hunger_pressed() -> void:
-	DebugTools.add_hunger()
+	DebugTools.add_hunger(GameState.get_selected_pet_id())
 	refresh()
 
 func _on_mood_pressed() -> void:
-	DebugTools.add_mood()
+	DebugTools.add_mood(GameState.get_selected_pet_id())
 	refresh()
 
 func _on_exp_pressed() -> void:
-	DebugTools.add_growth_exp()
+	DebugTools.add_growth_exp(GameState.get_selected_pet_id())
 	refresh()
 
 func _on_coin_pressed() -> void:
@@ -30,7 +30,7 @@ func _on_coin_pressed() -> void:
 	refresh()
 
 func _on_evolve_pressed() -> void:
-	DebugTools.direct_evolve()
+	DebugTools.direct_evolve(GameState.get_selected_pet_id())
 	refresh()
 
 func _on_day_pressed() -> void:
@@ -45,8 +45,9 @@ func _on_reset_pressed() -> void:
 	DebugTools.reset_save()
 
 func refresh() -> void:
-	var jellycat: Variant = GameState.get_jellycat()
-	var egg: Variant = GameState.get_egg()
+	var pet_id: String = GameState.get_selected_pet_id()
+	var pet: Dictionary = GameState.get_pet(pet_id)
+	var egg: Dictionary = GameState.get_nursery_egg(GameState.get_active_egg_id())
 	var species_id: String = "-"
 	var stage: String = "-"
 	var hunger: String = "-"
@@ -54,19 +55,21 @@ func refresh() -> void:
 	var cleanliness: String = "-"
 	var health: String = "-"
 	var growth_exp: String = "-"
-	if jellycat is Dictionary:
-		species_id = str(jellycat.get("species_id", "-"))
-		stage = str(jellycat.get("stage", "-"))
-		hunger = str(jellycat.get("hunger", "-"))
-		mood = str(jellycat.get("mood", "-"))
-		cleanliness = str(jellycat.get("cleanliness", "-"))
-		health = str(jellycat.get("health", "-"))
-		growth_exp = str(jellycat.get("growth_exp", "-"))
-	elif egg is Dictionary:
+	if not pet.is_empty():
+		species_id = str(pet.get("species_id", "-"))
+		stage = str(pet.get("stage", "-"))
+		hunger = str(pet.get("hunger", "-"))
+		mood = str(pet.get("mood", "-"))
+		cleanliness = str(GameState.get_aquarium().get("cleanliness", "-"))
+		health = str(pet.get("health", "-"))
+		growth_exp = str(pet.get("growth_exp", "-"))
+	elif not egg.is_empty():
 		species_id = str(egg.get("species_id", "-"))
 	var lines: Array = [
 		"version: %s" % VersionManager.get_display_text(),
 		"current scene: %s" % SceneRouter.current_scene_path,
+		"selected pet: %s (%s)" % [pet_id, str(pet.get("personality_id", "-"))],
+		"cohabiting pets: %s" % str(GameState.get_active_pet_ids()),
 		"species_id: %s" % species_id,
 		"stage: %s" % stage,
 		"hunger: %s" % hunger,

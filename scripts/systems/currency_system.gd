@@ -36,11 +36,9 @@ static func process_passive_income(_delta: float) -> int:
 
 
 static func calculate_passive_income() -> int:
-	var jellycat: Variant = GameState.get_jellycat()
-	if not (jellycat is Dictionary):
-		return 0
 	var threshold: int = int(GameApp.get_balance_value("passive_coin_mood_threshold", 70))
-	if int(jellycat.get("mood", 0)) < threshold:
+	var eligible_pet_count: int = _income_eligible_pet_count(threshold)
+	if eligible_pet_count <= 0:
 		GameState.set_timestamp("last_passive_coin_at", Time.get_datetime_string_from_system(), false)
 		return 0
 	var interval: int = int(GameApp.get_balance_value("passive_coin_interval_seconds", 30))
@@ -49,20 +47,18 @@ static func calculate_passive_income() -> int:
 	var ticks: int = int(floor(seconds / float(max(interval, 1))))
 	if ticks <= 0:
 		return 0
-	return ticks * int(GameApp.get_balance_value("passive_coin_amount", 1))
+	return ticks * _global_income_per_interval(eligible_pet_count)
 
 
 static func calculate_offline_income(elapsed_seconds: int) -> int:
-	var jellycat: Variant = GameState.get_jellycat()
-	if not (jellycat is Dictionary):
-		return 0
 	var threshold: int = int(GameApp.get_balance_value("passive_coin_mood_threshold", 70))
-	if int(jellycat.get("mood", 0)) < threshold:
+	var eligible_pet_count: int = _income_eligible_pet_count(threshold)
+	if eligible_pet_count <= 0:
 		return 0
 	var capped_seconds: int = min(max(elapsed_seconds, 0), int(GameApp.get_balance_value("offline_coin_cap_seconds", 14400)))
 	var interval: int = int(GameApp.get_balance_value("passive_coin_interval_seconds", 30))
 	var ticks: int = int(floor(float(capped_seconds) / float(max(interval, 1))))
-	return ticks * int(GameApp.get_balance_value("passive_coin_amount", 1))
+	return ticks * _global_income_per_interval(eligible_pet_count)
 
 
 static func apply_offline_income(elapsed_seconds: int) -> void:
@@ -89,3 +85,18 @@ static func add_evolution_bonus(new_stage: int) -> void:
 static func _log_coin_change(old_value: int, new_value: int) -> void:
 	if old_value != new_value:
 		RuntimeLogger.log_state("bubble_coin changed: %d -> %d" % [old_value, new_value])
+
+
+static func _income_eligible_pet_count(mood_threshold: int) -> int:
+	var count: int = 0
+	for pet_id in GameState.get_active_pet_ids():
+		var pet: Dictionary = GameState.get_pet(pet_id)
+		if str(pet.get("health", "healthy")) == "healthy" and int(pet.get("mood", 0)) >= mood_threshold:
+			count += 1
+	return count
+
+
+static func _global_income_per_interval(eligible_pet_count: int) -> int:
+	var per_pet_amount: int = max(0, int(GameApp.get_balance_value("passive_coin_amount", 1)))
+	var tank_budget: int = max(0, int(GameApp.get_balance_value("passive_coin_global_budget_per_interval", 3)))
+	return min(per_pet_amount * eligible_pet_count, tank_budget)
