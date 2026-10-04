@@ -117,6 +117,10 @@ func _run() -> void:
 		water_clear_of_ui = water_clear_of_ui and not water_16_9.intersects(ui_rect)
 		ui_inside_safe = ui_inside_safe and ui_rect.position.x >= safe_16_9.position.x and ui_rect.position.y >= safe_16_9.position.y
 		ui_inside_safe = ui_inside_safe and ui_rect.end.x <= safe_16_9.end.x and ui_rect.end.y <= safe_16_9.end.y
+	var ui_layout_diagnostics: Array[String] = []
+	for ui_node in ui_nodes:
+		ui_layout_diagnostics.append("%s=%s" % [ui_node.name, str(Rect2(ui_node.position, ui_node.size))])
+	print("G1 layout 16:9 safe=%s water=%s safe_fit=%s disjoint=%s controls=%s" % [str(safe_16_9), str(water_16_9), str(water_inside_safe_16_9 and ui_inside_safe), str(water_clear_of_ui), str(ui_layout_diagnostics)])
 	_expect(water_inside_safe_16_9 and water_clear_of_ui and ui_inside_safe, "16:9 active water and HUD panels stay inside safe insets without covering the water")
 	var all_bodies_fit_16_9: bool = true
 	var all_stage_one_ratios_fit: bool = true
@@ -183,6 +187,7 @@ func _run() -> void:
 	_expect(water_inside_safe_20_9 and bodies_fit_20_9, "20:9 active water and three actor bodies stay inside safe insets")
 	var simulated_action: Control = aquarium.get_node("%ActionBar") as Control
 	var simulated_roster: Control = aquarium.get_node("%PetRoster") as Control
+	print("G1 layout 20:9 viewport=%s root=%s safe=%s action=%s roster=%s water=%s" % [str(Vector2(2400.0, 1080.0)), str(aquarium.size), str(safe_20_9), str(Rect2(simulated_action.position, simulated_action.size)), str(Rect2(simulated_roster.position, simulated_roster.size)), str(water_20_9)])
 	_expect(simulated_action.position.x >= 40.0 and simulated_action.position.y >= 24.0 and simulated_action.position.x + simulated_action.size.x <= 2360.0 and simulated_action.position.y + simulated_action.size.y <= 1056.0, "20:9 layout keeps the action bar inside simulated safe bounds")
 	_expect(simulated_roster.position.x >= 40.0 and simulated_roster.position.y >= 24.0 and simulated_roster.position.x + simulated_roster.size.x <= 2360.0, "20:9 layout keeps the pet roster inside simulated safe bounds")
 	aquarium.call("_apply_responsive_layout")
@@ -233,7 +238,13 @@ func _run() -> void:
 		var click: InputEventScreenTouch = InputEventScreenTouch.new()
 		click.pressed = true
 		click.position = start_position
+		var touch_active_rect: Rect2 = aquarium.get("active_water_rect")
+		var touch_safe_rect: Rect2 = aquarium.call("_get_safe_viewport_rect", aquarium.get_viewport_rect().size)
+		var touch_hit: bool = bool(actor.call("contains_screen_point", start_position, actor_touch_target))
+		var touch_in_water: bool = touch_active_rect.has_point(start_position)
+		var touch_in_safe: bool = touch_safe_rect.has_point(start_position)
 		aquarium.call("_unhandled_input", click)
+		print("G1 pet touch id=%s pos=%s safe=%s water=%s hit=%s selected=%s" % [pet_id, str(start_position), str(touch_in_safe), str(touch_in_water), str(touch_hit), GameState.get_selected_pet_id()])
 		_expect(GameState.get_selected_pet_id() == pet_id, "Touching %s selects that pet" % pet_id)
 		var old_hunger: int = int(GameState.get_pet(pet_id).get("hunger", 0))
 		var old_inventory: int = GameState.get_inventory_count("food_basic")
@@ -250,7 +261,12 @@ func _run() -> void:
 		await get_tree().create_timer(0.1).timeout
 		wait_time += 0.1
 	_expect(GameState.get_food_drops().is_empty(), "Three food tokens are consumed once in the real Aquarium scene")
-	print("G1 acceptance: food chase wait %.1fs, drops remaining %d" % [wait_time, GameState.get_food_drops().size()])
+	var food_pet_diagnostics: Array[String] = []
+	for pet_id in GameState.get_active_pet_ids():
+		var food_actor: Node2D = actors_by_id.get(pet_id) as Node2D
+		if food_actor != null:
+			food_pet_diagnostics.append("%s:hunger=%d state=%s target=%s pos=%s" % [pet_id, int(GameState.get_pet(pet_id).get("hunger", 0)), str(food_actor.get("behavior_state")), str(food_actor.get("food_drop_id")), str(food_actor.global_position)])
+	print("G1 acceptance: food chase wait %.1fs drops=%s claims=%s actors=%s" % [wait_time, str(GameState.get_food_drops()), str(aquarium.get("food_claims")), str(food_pet_diagnostics)])
 	for pet_id in GameState.get_active_pet_ids():
 		_expect(int(GameState.get_pet(pet_id).get("hunger", 0)) > int(hunger_before_by_pet.get(pet_id, 100)), "%s receives a fair feed" % pet_id)
 

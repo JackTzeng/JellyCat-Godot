@@ -53,6 +53,7 @@ var roster_buttons_by_id: Dictionary = {}
 var food_rng: RandomNumberGenerator = RandomNumberGenerator.new()
 var last_world_input_at: int = -1000
 var last_world_input_position: Vector2 = Vector2.ZERO
+var last_world_input_kind: int = -1
 var active_water_rect: Rect2 = Rect2()
 var rename_modal_active: bool = false
 
@@ -107,9 +108,10 @@ func _process(delta: float) -> void:
 func _on_feed_pressed() -> void:
 	if not _accept_action("feed"):
 		return
-	var selected_actor: Node2D = actors_by_id.get(GameState.get_selected_pet_id()) as Node2D
+	var selected_pet_id: String = GameState.get_selected_pet_id()
+	var selected_actor: Node2D = actors_by_id.get(selected_pet_id) as Node2D
 	var drop_position: Vector2 = actor_anchor.global_position if selected_actor == null else selected_actor.global_position + Vector2(150.0, -70.0)
-	_drop_basic_food(drop_position)
+	_drop_basic_food(drop_position, selected_pet_id)
 
 
 func _on_cookie_pressed() -> void:
@@ -534,15 +536,17 @@ func _layout_ui(viewport_size: Vector2, safe_rect: Rect2) -> void:
 	_place_control(pet_roster, Rect2(Vector2(roster_left, top_y + 4.0), Vector2(maxf(0.0, roster_right - roster_left), 64.0)))
 	_place_control(pet_roster_backdrop, Rect2(pet_roster.position - Vector2(8.0, 4.0), pet_roster.size + Vector2(16.0, 8.0)))
 	var touch_target: float = DOS_STYLE.get_touch_target_height(viewport_size)
-	var action_width: float = minf(380.0, maxf(touch_target * 2.0 + 28.0, safe_width * 0.24))
+	var action_width_limit: float = maxf(16.0, safe_width - margin * 2.0)
+	var action_width: float = minf(action_width_limit, minf(380.0, maxf(touch_target * 2.0 + 28.0, safe_width * 0.24)))
 	var action_rows: int = int(ceil(float(action_bar.get_child_count()) / 2.0))
-	var action_height: float = minf(action_rows * touch_target + maxf(0.0, action_rows - 1) * 12.0 + 16.0, maxf(1.0, safe_height - margin * 2.0))
+	var action_height_limit: float = maxf(17.0, safe_height - margin * 2.0)
+	var action_height: float = minf(action_rows * touch_target + maxf(0.0, action_rows - 1) * 12.0 + 16.0, action_height_limit)
 	var action_rect: Rect2 = Rect2(Vector2(safe_right - margin - action_width + 8.0, safe_bottom - margin - action_height + 8.0), Vector2(action_width - 16.0, action_height - 16.0))
-	_place_control(action_bar, action_rect)
-	var button_width: float = maxf(touch_target, (action_bar.size.x - 12.0) / 2.0)
+	var button_width: float = maxf(touch_target, (action_rect.size.x - 12.0) / 2.0)
 	for child in action_bar.get_children():
 		if child is Button:
 			(child as Button).custom_minimum_size = Vector2(button_width, touch_target)
+	_place_control(action_bar, action_rect)
 	_place_control(action_backdrop, Rect2(action_bar.position - Vector2(8.0, 8.0), action_bar.size + Vector2(16.0, 16.0)))
 	var log_width: float = minf(360.0, maxf(320.0, safe_width * 0.28))
 	var log_height: float = minf(280.0, maxf(180.0, safe_height - margin * 2.0))
@@ -555,11 +559,18 @@ func _layout_ui(viewport_size: Vector2, safe_rect: Rect2) -> void:
 	var message_left: float = safe_left + margin + left_width + margin
 	var message_right: float = safe_right - margin - right_width - margin
 	_place_control(message_label, Rect2(Vector2(message_left, top_y + 76.0), Vector2(maxf(0.0, message_right - message_left), 38.0)))
-	var left_reserved: float = maxf(left_width, maxf(log_width, shop_width))
-	var right_reserved: float = maxf(right_width, action_width)
-	var water_left: float = safe_left + margin + left_reserved + margin
-	var water_right: float = safe_right - margin - right_reserved - margin
-	var water_top: float = maxf(pet_roster_backdrop.position.y + pet_roster_backdrop.size.y, message_label.position.y + message_label.size.y) + margin * 0.5
+	var left_panel_edge: float = safe_left
+	for left_panel in [status_backdrop, runtime_log_panel, shop_panel]:
+		left_panel_edge = maxf(left_panel_edge, left_panel.position.x + left_panel.size.x)
+	var right_panel_edge: float = safe_right
+	for right_panel in [inventory_backdrop, action_backdrop]:
+		right_panel_edge = minf(right_panel_edge, right_panel.position.x)
+	var top_panel_edge: float = safe_top
+	for top_panel in [pet_roster_backdrop, message_label]:
+		top_panel_edge = maxf(top_panel_edge, top_panel.position.y + top_panel.size.y)
+	var water_left: float = maxf(safe_left + margin, left_panel_edge + margin)
+	var water_right: float = minf(safe_right - margin, right_panel_edge - margin)
+	var water_top: float = maxf(safe_top + margin, top_panel_edge + margin)
 	var water_bottom: float = safe_bottom - margin
 	active_water_rect = Rect2(Vector2(water_left, water_top), Vector2(maxf(1.0, water_right - water_left), maxf(1.0, water_bottom - water_top)))
 	actor_anchor.position = active_water_rect.get_center()
@@ -590,14 +601,18 @@ func _has_sick_active_pet() -> bool:
 	return false
 
 
-func _drop_basic_food(screen_position: Vector2) -> void:
+func _drop_basic_food(screen_position: Vector2, target_pet_id: String = "") -> Dictionary:
 	screen_position = _clamp_to_rect(screen_position, active_water_rect, 24.0)
 	var drop: Dictionary = FoodDropSystem.drop_food(screen_position)
 	if drop.is_empty():
 		_show_message("No basic food available.")
-		return
+		return {}
+	var token_id: String = str(drop.get("token_id", ""))
+	if not token_id.is_empty() and GameState.get_active_pet_ids().has(target_pet_id) and not food_claims.values().has(target_pet_id):
+		food_claims[token_id] = target_pet_id
 	RuntimeLogger.log_action("Basic food dropped: %s" % str(drop.get("token_id", "")))
 	_show_message("Food is sinking.")
+	return drop
 
 
 func _update_food_drops(delta: float) -> void:
@@ -647,7 +662,8 @@ func _update_food_drops(delta: float) -> void:
 		var token_id: String = str(drop.get("token_id", ""))
 		if food_claims.has(token_id):
 			continue
-		var pet_id: String = _choose_food_pet(occupied_pet_ids)
+		var drop_position: Vector2 = Vector2(float(drop.get("x", 0.0)), float(drop.get("y", 0.0)))
+		var pet_id: String = _choose_food_pet(occupied_pet_ids, drop_position)
 		if pet_id.is_empty():
 			continue
 		food_claims[token_id] = pet_id
@@ -666,24 +682,24 @@ func _update_food_drops(delta: float) -> void:
 			actor.call("begin_eating", str(token_id))
 
 
-func _choose_food_pet(occupied_pet_ids: Dictionary) -> String:
+func _choose_food_pet(occupied_pet_ids: Dictionary, food_position: Vector2) -> String:
 	var lowest_hunger: int = 101
-	var candidates: Array[String] = []
+	var closest_distance: float = INF
+	var closest_pet_id: String = ""
 	for pet_id in GameState.get_active_pet_ids():
 		if occupied_pet_ids.has(pet_id):
 			continue
-		var actor: Node = actors_by_id.get(pet_id) as Node
+		var actor: Node2D = actors_by_id.get(pet_id) as Node2D
 		var pet: Dictionary = GameState.get_pet(pet_id)
 		var hunger: int = int(pet.get("hunger", 100))
 		if actor == null or not bool(actor.call("can_accept_food")) or hunger >= 95:
 			continue
-		if hunger < lowest_hunger:
+		var distance: float = actor.global_position.distance_to(food_position)
+		if hunger < lowest_hunger or (hunger == lowest_hunger and distance < closest_distance):
 			lowest_hunger = hunger
-			candidates.clear()
-		candidates.append(pet_id)
-	if candidates.is_empty():
-		return ""
-	return candidates[food_rng.randi_range(0, candidates.size() - 1)]
+			closest_distance = distance
+			closest_pet_id = pet_id
+	return closest_pet_id
 
 
 func _on_actor_food_eaten(token_id: String, pet_id: String) -> void:
@@ -707,24 +723,28 @@ func _unhandled_input(event: InputEvent) -> void:
 	if modal_input_shield.visible:
 		return
 	var screen_position: Vector2
+	var input_kind: int
 	if event is InputEventScreenTouch:
 		if not (event as InputEventScreenTouch).pressed:
 			return
 		screen_position = (event as InputEventScreenTouch).position
+		input_kind = 0
 	elif event is InputEventMouseButton:
 		var mouse_event: InputEventMouseButton = event as InputEventMouseButton
 		if not mouse_event.pressed or mouse_event.button_index != MOUSE_BUTTON_LEFT:
 			return
 		screen_position = mouse_event.position
+		input_kind = 1
 	else:
 		return
 	if not _get_safe_viewport_rect(get_viewport_rect().size).has_point(screen_position) or not active_water_rect.has_point(screen_position):
 		return
 	var now: int = Time.get_ticks_msec()
-	if now - last_world_input_at < 80 and screen_position.distance_to(last_world_input_position) < 2.0:
+	if input_kind != last_world_input_kind and now - last_world_input_at < 120 and screen_position.distance_to(last_world_input_position) < 2.0:
 		return
 	last_world_input_at = now
 	last_world_input_position = screen_position
+	last_world_input_kind = input_kind
 	var touch_target: float = DOS_STYLE.get_touch_target_height(get_viewport_rect().size)
 	var selected_actor: Node2D = null
 	var closest_distance: float = INF
