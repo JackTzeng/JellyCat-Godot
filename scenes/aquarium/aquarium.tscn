@@ -10,6 +10,7 @@ layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
+mouse_filter = 2
 script = ExtResource("1_aqua")
 
 [node name="Water" type="TextureRect" parent="."]
@@ -20,14 +21,10 @@ anchor_bottom = 1.0
 texture = ExtResource("4_bg")
 expand_mode = 1
 stretch_mode = 6
+mouse_filter = 2
 
-[node name="CoinBubbleContainer" type="Control" parent="."]
+[node name="ActorAnchor" type="Node2D" parent="."]
 unique_name_in_owner = true
-layout_mode = 1
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-mouse_filter = 1
 
 [node name="FoodDropContainer" type="Control" parent="."]
 unique_name_in_owner = true
@@ -36,6 +33,14 @@ anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 mouse_filter = 2
+
+[node name="CoinBubbleContainer" type="Control" parent="."]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 1
 
 [node name="PetRosterBackdrop" type="ColorRect" parent="."]
 unique_name_in_owner = true
@@ -176,10 +181,6 @@ offset_top = 48.0
 offset_right = -48.0
 offset_bottom = 164.0
 text = "Food x0\nCookie x0\nMedicine x0"
-
-[node name="ActorAnchor" type="Node2D" parent="."]
-unique_name_in_owner = true
-position = Vector2(836, 470)
 
 [node name="RuntimeLogPanel" parent="." instance=ExtResource("3_log")]
 unique_name_in_owner = true

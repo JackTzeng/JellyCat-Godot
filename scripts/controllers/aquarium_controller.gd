@@ -51,6 +51,7 @@ var roster_buttons_by_id: Dictionary = {}
 var food_rng: RandomNumberGenerator = RandomNumberGenerator.new()
 var last_world_input_at: int = -1000
 var last_world_input_position: Vector2 = Vector2.ZERO
+var active_water_rect: Rect2 = Rect2()
 
 func _ready() -> void:
 	DOS_STYLE.apply(self)
@@ -250,13 +251,11 @@ func _try_spawn_coin_bubble() -> void:
 	var eligible_ids: Array[String] = CoinDropSystem.get_eligible_pet_ids()
 	var source_pet_id: String = eligible_ids[food_rng.randi_range(0, eligible_ids.size() - 1)]
 	var source_actor: Node2D = actors_by_id.get(source_pet_id) as Node2D
-	var source_position: Vector2 = get_viewport_rect().size / 2.0 if source_actor == null else source_actor.global_position
+	var source_position: Vector2 = active_water_rect.get_center() if source_actor == null else source_actor.global_position
 	var value: int = int(GameApp.get_balance_value("passive_coin_amount", 1))
 	var viewport_size: Vector2 = get_viewport_rect().size
-	var safe_rect: Rect2 = _get_safe_viewport_rect(viewport_size)
 	var spawn_position: Vector2 = CoinDropSystem.get_spawn_position(viewport_size, source_position)
-	spawn_position.x = clampf(spawn_position.x, safe_rect.position.x + 72.0, safe_rect.position.x + safe_rect.size.x - 72.0)
-	spawn_position.y = clampf(spawn_position.y, safe_rect.position.y + 160.0, safe_rect.position.y + safe_rect.size.y - 170.0)
+	spawn_position = _clamp_to_rect(spawn_position, active_water_rect, 36.0)
 	var drop: Dictionary = CoinDropSystem.reserve_coin(source_pet_id, value, spawn_position)
 	if drop.is_empty():
 		return
@@ -274,7 +273,12 @@ func _add_coin_bubble(drop: Dictionary) -> void:
 	if token_id.is_empty() or coin_bubbles_by_id.has(token_id):
 		return
 	var bubble: Button = COIN_BUBBLE_SCENE.instantiate() as Button
-	bubble.call("configure", drop)
+	var visual_drop: Dictionary = drop.duplicate(true)
+	var coin_position: Vector2 = Vector2(float(drop.get("x", 0.0)), float(drop.get("y", 0.0)))
+	coin_position = _clamp_to_rect(coin_position, active_water_rect, 36.0)
+	visual_drop["x"] = coin_position.x
+	visual_drop["y"] = coin_position.y
+	bubble.call("configure", visual_drop)
 	bubble.connect("collected", Callable(self, "_on_coin_bubble_collected"))
 	coin_bubble_container.add_child(bubble)
 	coin_bubbles_by_id[token_id] = bubble
@@ -400,6 +404,7 @@ func _accept_action(action_name: String) -> bool:
 
 func _sync_pet_actors() -> void:
 	var active_ids: Array[String] = GameState.get_active_pet_ids()
+	var local_water_bounds: Rect2 = Rect2(-active_water_rect.size / 2.0, active_water_rect.size)
 	for pet_id in actors_by_id.keys():
 		if not active_ids.has(str(pet_id)):
 			var old_actor: Node = actors_by_id[pet_id] as Node
@@ -419,6 +424,7 @@ func _sync_pet_actors() -> void:
 		actor.position = _actor_spawn_position(index, active_ids.size())
 		actor.connect("food_eaten", Callable(self, "_on_actor_food_eaten"))
 		actor_anchor.add_child(actor)
+		actor.call("set_water_bounds", local_water_bounds)
 		actors_by_id[pet_id] = actor
 
 
@@ -480,8 +486,8 @@ func _layout_ui(viewport_size: Vector2, safe_rect: Rect2) -> void:
 	var safe_bottom: float = minf(viewport_size.y, safe_rect.position.y + safe_rect.size.y)
 	var safe_width: float = maxf(1.0, safe_right - safe_left)
 	var safe_height: float = maxf(1.0, safe_bottom - safe_top)
-	var left_width: float = clampf(safe_width * 0.28, 340.0, 460.0)
-	var right_width: float = clampf(safe_width * 0.19, 260.0, 340.0)
+	var left_width: float = clampf(safe_width * 0.28, 240.0, 460.0)
+	var right_width: float = clampf(safe_width * 0.19, 220.0, 340.0)
 	var top_y: float = safe_top + margin
 	var status_rect: Rect2 = Rect2(Vector2(safe_left + margin, top_y + 80.0), Vector2(left_width, 308.0))
 	_place_control(status_backdrop, status_rect)
@@ -489,26 +495,45 @@ func _layout_ui(viewport_size: Vector2, safe_rect: Rect2) -> void:
 	var inventory_rect: Rect2 = Rect2(Vector2(safe_right - margin - right_width, top_y + 80.0), Vector2(right_width, 126.0))
 	_place_control(inventory_backdrop, inventory_rect)
 	_place_control(inventory_label, Rect2(inventory_rect.position + Vector2(16.0, 12.0), inventory_rect.size - Vector2(32.0, 24.0)))
-	var roster_left: float = safe_left + margin + left_width + margin
-	var roster_right: float = safe_right - margin - right_width - margin
+	var roster_left: float = safe_left + margin
+	var roster_right: float = safe_right - margin
 	_place_control(pet_roster, Rect2(Vector2(roster_left, top_y + 4.0), Vector2(maxf(0.0, roster_right - roster_left), 64.0)))
 	_place_control(pet_roster_backdrop, Rect2(pet_roster.position - Vector2(8.0, 4.0), pet_roster.size + Vector2(16.0, 8.0)))
-	var action_width: float = minf(650.0, safe_width * 0.44)
 	var touch_target: float = DOS_STYLE.get_touch_target_height(viewport_size)
+	var action_width: float = minf(380.0, maxf(touch_target * 2.0 + 28.0, safe_width * 0.24))
 	var action_rows: int = int(ceil(float(action_bar.get_child_count()) / 2.0))
 	var action_height: float = minf(action_rows * touch_target + maxf(0.0, action_rows - 1) * 12.0 + 16.0, maxf(1.0, safe_height - margin * 2.0))
 	var action_rect: Rect2 = Rect2(Vector2(safe_right - margin - action_width + 8.0, safe_bottom - margin - action_height + 8.0), Vector2(action_width - 16.0, action_height - 16.0))
 	_place_control(action_bar, action_rect)
-	var button_width: float = maxf(132.0, (action_bar.size.x - 16.0) / 2.0)
+	var button_width: float = maxf(touch_target, (action_bar.size.x - 12.0) / 2.0)
 	for child in action_bar.get_children():
 		if child is Button:
 			(child as Button).custom_minimum_size = Vector2(button_width, touch_target)
 	_place_control(action_backdrop, Rect2(action_bar.position - Vector2(8.0, 8.0), action_bar.size + Vector2(16.0, 16.0)))
-	var log_width: float = minf(560.0, maxf(320.0, safe_width - action_width - left_width - margin * 5.0))
-	_place_control(runtime_log_panel, Rect2(Vector2(safe_left + margin, safe_bottom - margin - 236.0), Vector2(log_width, 220.0)))
-	_place_control(shop_panel, Rect2(Vector2(safe_left + margin, top_y + 416.0), Vector2(minf(380.0, safe_width * 0.34), 220.0)))
-	_place_control(message_label, Rect2(Vector2(roster_left, top_y + 76.0), Vector2(maxf(0.0, roster_right - roster_left), 38.0)))
-	actor_anchor.position = Vector2(safe_left + safe_width * 0.5, safe_top + safe_height * 0.54)
+	var log_width: float = minf(360.0, maxf(320.0, safe_width * 0.28))
+	var log_height: float = minf(280.0, maxf(180.0, safe_height - margin * 2.0))
+	runtime_log_panel.custom_minimum_size = Vector2(log_width, log_height)
+	_place_control(runtime_log_panel, Rect2(Vector2(safe_left + margin, safe_bottom - margin - log_height), Vector2(log_width, log_height)))
+	var shop_width: float = minf(360.0, maxf(320.0, safe_width * 0.34))
+	var shop_height: float = maxf(220.0, shop_panel.get_combined_minimum_size().y)
+	shop_panel.custom_minimum_size = Vector2(shop_width, shop_height)
+	_place_control(shop_panel, Rect2(Vector2(safe_left + margin, minf(top_y + 416.0, safe_bottom - margin - shop_height)), Vector2(shop_width, shop_height)))
+	var message_left: float = safe_left + margin + left_width + margin
+	var message_right: float = safe_right - margin - right_width - margin
+	_place_control(message_label, Rect2(Vector2(message_left, top_y + 76.0), Vector2(maxf(0.0, message_right - message_left), 38.0)))
+	var left_reserved: float = maxf(left_width, maxf(log_width, shop_width))
+	var right_reserved: float = maxf(right_width, action_width)
+	var water_left: float = safe_left + margin + left_reserved + margin
+	var water_right: float = safe_right - margin - right_reserved - margin
+	var water_top: float = maxf(pet_roster_backdrop.position.y + pet_roster_backdrop.size.y, message_label.position.y + message_label.size.y) + margin * 0.5
+	var water_bottom: float = safe_bottom - margin
+	active_water_rect = Rect2(Vector2(water_left, water_top), Vector2(maxf(1.0, water_right - water_left), maxf(1.0, water_bottom - water_top)))
+	actor_anchor.position = active_water_rect.get_center()
+	var local_water_bounds: Rect2 = Rect2(-active_water_rect.size / 2.0, active_water_rect.size)
+	for actor_value in actors_by_id.values():
+		var actor: Node = actor_value as Node
+		if is_instance_valid(actor):
+			actor.call("set_water_bounds", local_water_bounds)
 
 
 func _place_control(control: Control, target_rect: Rect2) -> void:
@@ -518,7 +543,10 @@ func _place_control(control: Control, target_rect: Rect2) -> void:
 
 
 func _actor_spawn_position(index: int, count: int) -> Vector2:
-	return Vector2((float(index) - float(count - 1) / 2.0) * 280.0, 0.0)
+	if count <= 1:
+		return Vector2.ZERO
+	var spacing: float = active_water_rect.size.x * 0.64 / float(count - 1)
+	return Vector2((float(index) - float(count - 1) / 2.0) * spacing, 0.0)
 
 
 func _has_sick_active_pet() -> bool:
@@ -529,9 +557,7 @@ func _has_sick_active_pet() -> bool:
 
 
 func _drop_basic_food(screen_position: Vector2) -> void:
-	var safe_rect: Rect2 = _get_safe_viewport_rect(get_viewport_rect().size)
-	screen_position.x = clampf(screen_position.x, safe_rect.position.x + 24.0, safe_rect.position.x + safe_rect.size.x - 24.0)
-	screen_position.y = clampf(screen_position.y, safe_rect.position.y + 24.0, safe_rect.position.y + safe_rect.size.y - 24.0)
+	screen_position = _clamp_to_rect(screen_position, active_water_rect, 24.0)
 	var drop: Dictionary = FoodDropSystem.drop_food(screen_position)
 	if drop.is_empty():
 		_show_message("No basic food available.")
@@ -550,7 +576,7 @@ func _update_food_drops(delta: float) -> void:
 		if not food_drop_visuals.has(token_id):
 			var food: Label = Label.new()
 			food.text = "●"
-			food.position = Vector2(float(drop.get("x", 0.0)), float(drop.get("y", 0.0)))
+			food.position = _clamp_to_rect(Vector2(float(drop.get("x", 0.0)), float(drop.get("y", 0.0))), active_water_rect, 24.0)
 			food.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			food.add_theme_font_size_override("font_size", 38)
 			food.add_theme_color_override("font_color", Color(1.0, 0.91, 0.57, 1.0))
@@ -559,8 +585,8 @@ func _update_food_drops(delta: float) -> void:
 			food_drop_container.add_child(food)
 			food_drop_visuals[token_id] = food
 		var visual: Label = food_drop_visuals[token_id] as Label
-		var safe_rect: Rect2 = _get_safe_viewport_rect(get_viewport_rect().size)
-		var floor_y: float = safe_rect.position.y + safe_rect.size.y - 150.0
+		visual.position = _clamp_to_rect(visual.position, active_water_rect, 24.0)
+		var floor_y: float = active_water_rect.end.y - 24.0
 		if visual.position.y < floor_y:
 			visual.position.y = minf(floor_y, visual.position.y + float(GameApp.get_balance_value("food_sink_speed", 18.0)) * delta)
 
@@ -656,17 +682,35 @@ func _unhandled_input(event: InputEvent) -> void:
 		screen_position = mouse_event.position
 	else:
 		return
-	if not _get_safe_viewport_rect(get_viewport_rect().size).has_point(screen_position):
+	if not _get_safe_viewport_rect(get_viewport_rect().size).has_point(screen_position) or not active_water_rect.has_point(screen_position):
 		return
 	var now: int = Time.get_ticks_msec()
 	if now - last_world_input_at < 80 and screen_position.distance_to(last_world_input_position) < 2.0:
 		return
 	last_world_input_at = now
 	last_world_input_position = screen_position
+	var touch_target: float = DOS_STYLE.get_touch_target_height(get_viewport_rect().size)
+	var selected_actor: Node2D = null
+	var closest_distance: float = INF
 	for pet_id in GameState.get_active_pet_ids():
 		var actor: Node2D = actors_by_id.get(pet_id) as Node2D
-		if actor != null and screen_position.distance_to(actor.global_position) <= 110.0:
-			GameState.set_selected_pet_id(pet_id)
-			actor.call("react_to_touch")
-			return
+		if actor == null or not bool(actor.call("contains_screen_point", screen_position, touch_target)):
+			continue
+		var distance: float = float(actor.call("get_distance_to_screen_point", screen_position))
+		if distance < closest_distance:
+			closest_distance = distance
+			selected_actor = actor
+	if selected_actor != null:
+		GameState.set_selected_pet_id(str(selected_actor.get("pet_id")))
+		selected_actor.call("react_to_touch")
+		return
 	_drop_basic_food(screen_position)
+
+
+func _clamp_to_rect(value: Vector2, rect: Rect2, margin: float) -> Vector2:
+	var horizontal_margin: float = minf(margin, rect.size.x * 0.5)
+	var vertical_margin: float = minf(margin, rect.size.y * 0.5)
+	return Vector2(
+		clampf(value.x, rect.position.x + horizontal_margin, rect.end.x - horizontal_margin),
+		clampf(value.y, rect.position.y + vertical_margin, rect.end.y - vertical_margin)
+	)

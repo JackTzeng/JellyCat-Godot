@@ -68,8 +68,98 @@ func _run() -> void:
 	print("G1 acceptance: aquarium and three actors ready")
 	var actors: Dictionary = aquarium.get("actors_by_id") as Dictionary
 	_expect(actors.size() == 3, "Aquarium creates three pet actors")
-	_expect((aquarium.get_node("%ActorAnchor") as Node2D).get_child_count() == 3, "Actor scene tree has exactly three children")
+	var actor_anchor: Node2D = aquarium.get_node("%ActorAnchor") as Node2D
+	_expect(actor_anchor.get_child_count() == 3, "Actor scene tree has exactly three children")
+	var coin_container: Control = aquarium.get_node("%CoinBubbleContainer") as Control
+	var food_container: Control = aquarium.get_node("%FoodDropContainer") as Control
+	var status_backdrop: Control = aquarium.get_node("%StatusBackdrop") as Control
+	var action_layer: Control = aquarium.get_node("%ActionBar") as Control
+	var world_is_below_hud: bool = aquarium.get_node("%Water").get_index() < actor_anchor.get_index()
+	world_is_below_hud = world_is_below_hud and actor_anchor.get_index() < food_container.get_index() and food_container.get_index() < coin_container.get_index()
+	world_is_below_hud = world_is_below_hud and coin_container.get_index() < status_backdrop.get_index() and coin_container.get_index() < action_layer.get_index()
+	world_is_below_hud = world_is_below_hud and aquarium.mouse_filter == Control.MOUSE_FILTER_IGNORE and (aquarium.get_node("%Water") as Control).mouse_filter == Control.MOUSE_FILTER_IGNORE
+	world_is_below_hud = world_is_below_hud and (aquarium.get_node("%FeedButton") as Button).mouse_filter == Control.MOUSE_FILTER_STOP
+	_expect(world_is_below_hud, "Aquarium draw order puts HUD above coins, pets, food, and water")
+	var viewport_16_9: Vector2 = Vector2(1280.0, 720.0)
+	var safe_16_9: Rect2 = Rect2(Vector2(24.0, 12.0), Vector2(1232.0, 696.0))
+	aquarium.call("_layout_ui", viewport_16_9, safe_16_9)
+	var water_16_9: Rect2 = aquarium.get("active_water_rect")
+	var water_inside_safe_16_9: bool = water_16_9.position.x >= safe_16_9.position.x and water_16_9.position.y >= safe_16_9.position.y
+	water_inside_safe_16_9 = water_inside_safe_16_9 and water_16_9.end.x <= safe_16_9.end.x and water_16_9.end.y <= safe_16_9.end.y
+	var ui_nodes: Array[Control] = [
+		status_backdrop,
+		aquarium.get_node("%InventoryBackdrop") as Control,
+		aquarium.get_node("%PetRosterBackdrop") as Control,
+		aquarium.get_node("%MessageLabel") as Control,
+		aquarium.get_node("%ActionBackdrop") as Control,
+		aquarium.get_node("%RuntimeLogPanel") as Control,
+		aquarium.get_node("%ShopPanel") as Control,
+	]
+	var water_clear_of_ui: bool = true
+	var ui_inside_safe: bool = true
+	for ui_node in ui_nodes:
+		var ui_rect: Rect2 = Rect2(ui_node.position, ui_node.size)
+		water_clear_of_ui = water_clear_of_ui and not water_16_9.intersects(ui_rect)
+		ui_inside_safe = ui_inside_safe and ui_rect.position.x >= safe_16_9.position.x and ui_rect.position.y >= safe_16_9.position.y
+		ui_inside_safe = ui_inside_safe and ui_rect.end.x <= safe_16_9.end.x and ui_rect.end.y <= safe_16_9.end.y
+	_expect(water_inside_safe_16_9 and water_clear_of_ui and ui_inside_safe, "16:9 active water and HUD panels stay inside safe insets without covering the water")
+	var all_bodies_fit_16_9: bool = true
+	var all_stage_one_ratios_fit: bool = true
+	for pet_id in GameState.get_active_pet_ids():
+		var actor: Node = actors.get(pet_id) as Node
+		var body_rect: Rect2 = actor.call("get_visual_body_rect_global")
+		all_bodies_fit_16_9 = all_bodies_fit_16_9 and body_rect.position.x >= water_16_9.position.x and body_rect.position.y >= water_16_9.position.y
+		all_bodies_fit_16_9 = all_bodies_fit_16_9 and body_rect.end.x <= water_16_9.end.x and body_rect.end.y <= water_16_9.end.y
+		var body_size: Vector2 = actor.call("get_visual_body_size")
+		var body_ratio: float = body_size.y / water_16_9.size.y
+		all_stage_one_ratios_fit = all_stage_one_ratios_fit and body_ratio >= 0.15 and body_ratio <= 0.20
+	_expect(all_bodies_fit_16_9 and all_stage_one_ratios_fit, "Three stage-one bodies stay visible at 15–20% of 16:9 water height")
+	var visual_probe: Node = actors.get(GameState.get_active_pet_ids()[0]) as Node
+	var prior_stage: int = int(visual_probe.get("current_stage"))
+	var stages_grow_within_limit: bool = true
+	var previous_body_height: float = 0.0
+	for stage in range(1, 6):
+		visual_probe.call("set_stage", stage, "normal_jellycat")
+		var stage_body: Vector2 = visual_probe.call("get_visual_body_size")
+		var animated_body: Vector2 = visual_probe.call("get_max_animated_body_size")
+		var stage_rect: Rect2 = visual_probe.call("get_visual_body_rect_global")
+		var stage_fits: bool = stage_rect.position.x >= water_16_9.position.x and stage_rect.position.y >= water_16_9.position.y
+		stage_fits = stage_fits and stage_rect.end.x <= water_16_9.end.x and stage_rect.end.y <= water_16_9.end.y
+		stages_grow_within_limit = stages_grow_within_limit and stage_body.y > previous_body_height and animated_body.y <= water_16_9.size.y * 0.25 and stage_fits
+		previous_body_height = stage_body.y
+	visual_probe.call("set_stage", prior_stage, "normal_jellycat")
+	_expect(stages_grow_within_limit, "Five stage textures grow by visible bounds and never exceed 25% with animation")
+	var probe_sprite: Sprite2D = visual_probe.get_node("%Sprite") as Sprite2D
+	var probe_base_scale: float = float(visual_probe.get("base_scale"))
+	visual_probe.set("food_drop_id", "visual-scale-probe")
+	visual_probe.set("behavior_state", "eat")
+	visual_probe.call("_process", 0.1)
+	var eating_keeps_base: bool = probe_sprite.scale.x >= probe_base_scale * 0.95 and probe_sprite.scale.x <= probe_base_scale * 1.05
+	visual_probe.call("clear_food_target", "visual-scale-probe")
+	var cancel_keeps_base: bool = is_equal_approx(probe_sprite.scale.x, probe_base_scale)
+	visual_probe.set("food_drop_id", "visual-meal-probe")
+	visual_probe.call("complete_meal", "visual-meal-probe")
+	var meal_keeps_base: bool = is_equal_approx(probe_sprite.scale.x, probe_base_scale)
+	visual_probe.set("behavior_state", "idle_roam")
+	_expect(eating_keeps_base and cancel_keeps_base and meal_keeps_base, "Eat pulse, cancel, and meal completion preserve computed base scale")
+	var inventory_before_hud_tap: int = GameState.get_food_drops().size()
+	var hud_tap: InputEventScreenTouch = InputEventScreenTouch.new()
+	hud_tap.pressed = true
+	hud_tap.position = status_backdrop.position + status_backdrop.size / 2.0
+	aquarium.call("_unhandled_input", hud_tap)
+	_expect(GameState.get_food_drops().size() == inventory_before_hud_tap, "HUD-area taps cannot fall through into water actions")
 	aquarium.call("_layout_ui", Vector2(2400.0, 1080.0), Rect2(Vector2(40.0, 24.0), Vector2(2320.0, 1032.0)))
+	var safe_20_9: Rect2 = Rect2(Vector2(40.0, 24.0), Vector2(2320.0, 1032.0))
+	var water_20_9: Rect2 = aquarium.get("active_water_rect")
+	var water_inside_safe_20_9: bool = water_20_9.position.x >= safe_20_9.position.x and water_20_9.position.y >= safe_20_9.position.y
+	water_inside_safe_20_9 = water_inside_safe_20_9 and water_20_9.end.x <= safe_20_9.end.x and water_20_9.end.y <= safe_20_9.end.y
+	var bodies_fit_20_9: bool = true
+	for pet_id in GameState.get_active_pet_ids():
+		var actor: Node = actors.get(pet_id) as Node
+		var body_rect: Rect2 = actor.call("get_visual_body_rect_global")
+		bodies_fit_20_9 = bodies_fit_20_9 and body_rect.position.x >= water_20_9.position.x and body_rect.position.y >= water_20_9.position.y
+		bodies_fit_20_9 = bodies_fit_20_9 and body_rect.end.x <= water_20_9.end.x and body_rect.end.y <= water_20_9.end.y
+	_expect(water_inside_safe_20_9 and bodies_fit_20_9, "20:9 active water and three actor bodies stay inside safe insets")
 	var simulated_action: Control = aquarium.get_node("%ActionBar") as Control
 	var simulated_roster: Control = aquarium.get_node("%PetRoster") as Control
 	_expect(simulated_action.position.x >= 40.0 and simulated_action.position.y >= 24.0 and simulated_action.position.x + simulated_action.size.x <= 2360.0 and simulated_action.position.y + simulated_action.size.y <= 1056.0, "20:9 layout keeps the action bar inside simulated safe bounds")
@@ -159,7 +249,9 @@ func _run() -> void:
 	await get_tree().create_timer(0.6).timeout
 	print("G1 acceptance: food restart transaction checks done")
 	var inventory_before_expiry: int = GameState.get_inventory_count("food_basic")
-	var expiring_drop: Dictionary = GameState.reserve_food_drop("food_basic", Vector2(80.0, 80.0), Time.get_unix_time_from_system() + 1.0)
+	var expiry_water: Rect2 = aquarium.get("active_water_rect")
+	var expiry_position: Vector2 = expiry_water.position + Vector2(24.0, 24.0)
+	var expiring_drop: Dictionary = GameState.reserve_food_drop("food_basic", expiry_position, Time.get_unix_time_from_system() + 1.0)
 	var expiring_token: String = str(expiring_drop.get("token_id", ""))
 	_expect(not expiring_token.is_empty() and SaveManager.save_game(), "A short-lived food token saves before expiry")
 	aquarium.call("_update_food_drops", 0.1)
@@ -171,7 +263,8 @@ func _run() -> void:
 	_expect(not (aquarium.get("food_drop_visuals") as Dictionary).has(expiring_token), "Expired food marker is removed from the Aquarium")
 	_expect(not (aquarium.get("food_claims") as Dictionary).has(expiring_token), "Expired food claim is cleared")
 	var inventory_before_duplicate_tap: int = GameState.get_inventory_count("food_basic")
-	var water_tap: Vector2 = Vector2(72.0, 560.0)
+	var active_water: Rect2 = aquarium.get("active_water_rect")
+	var water_tap: Vector2 = active_water.position + Vector2(24.0, 24.0)
 	var world_touch: InputEventScreenTouch = InputEventScreenTouch.new()
 	world_touch.pressed = true
 	world_touch.position = water_tap
