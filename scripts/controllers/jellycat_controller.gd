@@ -31,6 +31,13 @@ var water_bounds_local: Rect2 = Rect2()
 var has_water_bounds: bool = false
 var visible_texture_rect: Rect2 = Rect2()
 var visible_texture_center: Vector2 = Vector2.ZERO
+var layout_transition_active: bool = false
+var layout_transition_elapsed: float = 0.0
+var layout_transition_duration: float = 0.0
+var layout_transition_start_position: Vector2 = Vector2.ZERO
+var layout_transition_target_position: Vector2 = Vector2.ZERO
+var layout_transition_start_roam_target: Vector2 = Vector2.ZERO
+var layout_transition_target_roam_target: Vector2 = Vector2.ZERO
 var rng: RandomNumberGenerator = RandomNumberGenerator.new()
 
 
@@ -57,26 +64,29 @@ func _process(delta: float) -> void:
 		return
 	bob_time += delta
 	var offset: Vector2 = roam_target - position
-	match behavior_state:
-		"idle_roam":
-			if offset.length() <= 10.0:
-				idle_time -= delta
-				if idle_time <= 0.0:
+	if layout_transition_active:
+		_advance_layout_transition(delta)
+	else:
+		match behavior_state:
+			"idle_roam":
+				if offset.length() <= 10.0:
+					idle_time -= delta
+					if idle_time <= 0.0:
+						_choose_roam_target()
+				else:
+					_move_toward(roam_target, float(GameApp.get_balance_value("actor_swim_speed", 32.0)), delta)
+			"approach_food":
+				_move_toward(roam_target, float(GameApp.get_balance_value("actor_food_chase_speed", 68.0)), delta)
+			"post_meal":
+				post_meal_timer -= delta
+				if post_meal_timer <= 0.0:
+					behavior_state = "idle_roam"
 					_choose_roam_target()
-			else:
-				_move_toward(roam_target, float(GameApp.get_balance_value("actor_swim_speed", 32.0)), delta)
-		"approach_food":
-			_move_toward(roam_target, float(GameApp.get_balance_value("actor_food_chase_speed", 68.0)), delta)
-		"post_meal":
-			post_meal_timer -= delta
-			if post_meal_timer <= 0.0:
-				behavior_state = "idle_roam"
-				_choose_roam_target()
-		"touch_reaction":
-			touch_reaction_timer -= delta
-			if touch_reaction_timer <= 0.0:
-				behavior_state = "idle_roam"
-				_choose_roam_target()
+			"touch_reaction":
+				touch_reaction_timer -= delta
+				if touch_reaction_timer <= 0.0:
+					behavior_state = "idle_roam"
+					_choose_roam_target()
 	pulse_scale = 1.0
 	if behavior_state == "eat":
 		pulse_scale = 1.0 + sin(bob_time * 14.0) * 0.05
@@ -85,7 +95,8 @@ func _process(delta: float) -> void:
 	bob_offset = sin(bob_time * 2.0 + bob_phase) * BOB_AMPLITUDE
 	sprite.rotation = sin(bob_time * 1.2 + bob_phase) * MAX_SWIM_ROTATION
 	_apply_sprite_pose()
-	position = _clamp_to_water(position)
+	if not layout_transition_active:
+		position = _clamp_to_water(position)
 
 
 func refresh_pet() -> void:
@@ -108,11 +119,68 @@ func set_water_bounds(bounds: Rect2) -> void:
 	roam_target = _clamp_to_water(roam_target)
 
 
+func set_layout_water_bounds(
+	bounds: Rect2,
+	anchor_delta: Vector2,
+	transition_seconds: float,
+	occupied_positions: Array[Vector2],
+	touch_target: float
+) -> Vector2:
+	if bounds.size.x <= 0.0 or bounds.size.y <= 0.0:
+		return position
+	var previous_bounds: Rect2 = water_bounds_local
+	var previously_had_bounds: bool = has_water_bounds
+	var bounds_changed: bool = not previously_had_bounds or previous_bounds.position.distance_to(bounds.position) > 0.5 or previous_bounds.size.distance_to(bounds.size) > 0.5
+	var anchor_changed: bool = anchor_delta.length() > 0.5
+	if previously_had_bounds and not bounds_changed and not anchor_changed:
+		return layout_transition_target_position if layout_transition_active else position
+	position -= anchor_delta
+	roam_target -= anchor_delta
+	water_bounds_local = bounds
+	has_water_bounds = true
+	_update_base_scale(false)
+	var body_size: Vector2 = get_visual_body_size()
+	var minimum_separation: float = maxf(body_size.x, body_size.y) + touch_target
+	var target_position: Vector2 = _find_spaced_layout_position(_clamp_to_water(position), occupied_positions, minimum_separation)
+	var target_roam_target: Vector2 = _clamp_to_water(roam_target)
+	if behavior_state == "idle_roam":
+		target_roam_target = _find_spaced_layout_position(target_roam_target, occupied_positions, minimum_separation)
+	var should_animate: bool = transition_seconds > 0.0 and previously_had_bounds and (anchor_changed or bounds_changed)
+	if not should_animate:
+		layout_transition_active = false
+		position = target_position
+		roam_target = target_roam_target
+		return target_position
+	layout_transition_active = true
+	layout_transition_elapsed = 0.0
+	layout_transition_duration = transition_seconds
+	layout_transition_start_position = position
+	layout_transition_target_position = target_position
+	layout_transition_start_roam_target = roam_target
+	layout_transition_target_roam_target = target_roam_target
+	return target_position
+
+
+func _advance_layout_transition(delta: float) -> void:
+	layout_transition_elapsed = minf(layout_transition_duration, layout_transition_elapsed + delta)
+	var progress: float = clampf(layout_transition_elapsed / maxf(layout_transition_duration, 0.001), 0.0, 1.0)
+	var eased_progress: float = 1.0 - pow(1.0 - progress, 3.0)
+	position = layout_transition_start_position.lerp(layout_transition_target_position, eased_progress)
+	roam_target = layout_transition_start_roam_target.lerp(layout_transition_target_roam_target, eased_progress)
+	if progress >= 1.0:
+		position = layout_transition_target_position
+		roam_target = layout_transition_target_roam_target
+		layout_transition_active = false
+
+
 func set_food_target(token_id: String, target_position: Vector2) -> bool:
 	if behavior_state == "post_meal" or behavior_state == "touch_reaction" or behavior_state == "eat":
 		return false
 	food_drop_id = token_id
-	roam_target = _clamp_to_water(target_position)
+	if layout_transition_active:
+		layout_transition_target_roam_target = _clamp_to_water(target_position)
+	else:
+		roam_target = _clamp_to_water(target_position)
 	behavior_state = "approach_food"
 	return true
 
@@ -230,7 +298,7 @@ func get_distance_to_screen_point(screen_position: Vector2) -> float:
 	return sprite.to_global(_get_texture_content_rect().get_center()).distance_to(screen_position)
 
 
-func _update_base_scale() -> void:
+func _update_base_scale(clamp_actor_to_bounds: bool = true) -> void:
 	if not has_water_bounds or visible_texture_rect.size.x <= 0.0 or visible_texture_rect.size.y <= 0.0:
 		base_scale = STAGE_ONE_BODY_RATIO
 	else:
@@ -243,8 +311,9 @@ func _update_base_scale() -> void:
 		base_scale = minf(target_height / visible_texture_rect.size.y, max_width / visible_texture_rect.size.x)
 		base_scale = maxf(base_scale, 0.001)
 	_apply_sprite_pose()
-	position = _clamp_to_water(position)
-	roam_target = _clamp_to_water(roam_target)
+	if clamp_actor_to_bounds:
+		position = _clamp_to_water(position)
+		roam_target = _clamp_to_water(roam_target)
 
 
 func _apply_sprite_pose() -> void:
@@ -287,6 +356,14 @@ func _get_conservative_half_extents() -> Vector2:
 func _clamp_to_water(value: Vector2) -> Vector2:
 	if not has_water_bounds:
 		return value
+	var center_bounds: Rect2 = _get_water_center_bounds()
+	return Vector2(
+		clampf(value.x, center_bounds.position.x, center_bounds.end.x),
+		clampf(value.y, center_bounds.position.y, center_bounds.end.y)
+	)
+
+
+func _get_water_center_bounds() -> Rect2:
 	var half: Vector2 = _get_conservative_half_extents()
 	var center: Vector2 = water_bounds_local.get_center()
 	var minimum: Vector2 = Vector2(
@@ -297,7 +374,51 @@ func _clamp_to_water(value: Vector2) -> Vector2:
 		maxf(water_bounds_local.end.x - half.x, center.x),
 		maxf(water_bounds_local.end.y - half.y, center.y)
 	)
-	return Vector2(clampf(value.x, minimum.x, maximum.x), clampf(value.y, minimum.y, maximum.y))
+	return Rect2(minimum, maximum - minimum)
+
+
+func _find_spaced_layout_position(preferred: Vector2, occupied_positions: Array[Vector2], minimum_separation: float) -> Vector2:
+	if occupied_positions.is_empty() or minimum_separation <= 0.0:
+		return preferred
+	var nearest_clearance: float = INF
+	for occupied_position in occupied_positions:
+		nearest_clearance = minf(nearest_clearance, preferred.distance_to(occupied_position))
+	if nearest_clearance >= minimum_separation:
+		return preferred
+	var center_bounds: Rect2 = _get_water_center_bounds()
+	var step: float = maxf(minimum_separation * 0.5, 16.0)
+	var x_positions: Array[float] = [center_bounds.position.x, center_bounds.end.x, center_bounds.get_center().x, clampf(preferred.x, center_bounds.position.x, center_bounds.end.x)]
+	var y_positions: Array[float] = [center_bounds.position.y, center_bounds.end.y, center_bounds.get_center().y, clampf(preferred.y, center_bounds.position.y, center_bounds.end.y)]
+	var cursor: float = center_bounds.position.x
+	while cursor < center_bounds.end.x:
+		x_positions.append(cursor)
+		cursor += step
+	cursor = center_bounds.position.y
+	while cursor < center_bounds.end.y:
+		y_positions.append(cursor)
+		cursor += step
+	var best_open_position: Vector2 = preferred
+	var best_open_distance: float = INF
+	var found_open_position: bool = false
+	var best_clearance_position: Vector2 = preferred
+	var best_clearance: float = -INF
+	var best_fallback_distance: float = INF
+	for y in y_positions:
+		for x in x_positions:
+			var candidate: Vector2 = Vector2(x, y)
+			var clearance: float = INF
+			for occupied_position in occupied_positions:
+				clearance = minf(clearance, candidate.distance_to(occupied_position))
+			var candidate_distance: float = candidate.distance_to(preferred)
+			if clearance >= minimum_separation and candidate_distance < best_open_distance:
+				best_open_position = candidate
+				best_open_distance = candidate_distance
+				found_open_position = true
+			if clearance > best_clearance or (is_equal_approx(clearance, best_clearance) and candidate_distance < best_fallback_distance):
+				best_clearance_position = candidate
+				best_clearance = clearance
+				best_fallback_distance = candidate_distance
+	return best_open_position if found_open_position else best_clearance_position
 
 
 func _choose_roam_target() -> void:

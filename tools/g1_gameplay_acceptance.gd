@@ -89,6 +89,13 @@ func _run() -> void:
 	_expect(stage_sprite != null and stage_sprite.texture_filter == CanvasItem.TEXTURE_FILTER_NEAREST, "Official 64-pixel stage art uses nearest-neighbor sampling")
 	_expect(overlay_layer.get_index() > action_layer.get_index() and overlay_layer.mouse_filter == Control.MOUSE_FILTER_IGNORE and modal_input_shield.mouse_filter == Control.MOUSE_FILTER_STOP and overlay_layer.get_index() + 1 == aquarium.get_child_count() and aquarium.get_node("%ShopPanel").get_parent() == overlay_layer and aquarium.get_node("%ShopPanel").get_index() > modal_input_shield.get_index(), "Modal shield and Shop sit above the HUD in input-safe order")
 	_expect(not (aquarium.get_node("%RuntimeLogPanel") as Control).visible and (aquarium.get_node("%LogToggleButton") as Button).visible == OS.is_debug_build(), "Runtime log starts hidden and is explicitly available only in debug builds")
+	var pet_info_button: Button = aquarium.get("pet_info_button") as Button
+	var coin_label: Label = aquarium.get_node("%CoinLabel") as Label
+	var inventory_label: Label = aquarium.get_node("%InventoryLabel") as Label
+	var pet_details_collapsed: bool = not bool(aquarium.get("pet_info_open")) and pet_info_button != null and pet_info_button.text == "Pet Info"
+	pet_details_collapsed = pet_details_collapsed and status_backdrop.visible and coin_label.visible and coin_label.text.begins_with("Coin:")
+	pet_details_collapsed = pet_details_collapsed and not (aquarium.get_node("%StageLabel") as Control).visible and inventory_label.visible and inventory_label.text.contains("Food x")
+	_expect(pet_details_collapsed, "Aquarium starts with compact coin and inventory status while individual details stay closed")
 	var world_is_below_hud: bool = aquarium.get_node("%Water").get_index() < actor_anchor.get_index()
 	world_is_below_hud = world_is_below_hud and actor_anchor.get_index() < food_container.get_index() and food_container.get_index() < coin_container.get_index()
 	world_is_below_hud = world_is_below_hud and coin_container.get_index() < status_backdrop.get_index() and coin_container.get_index() < action_layer.get_index()
@@ -110,18 +117,21 @@ func _run() -> void:
 		aquarium.get_node("%RuntimeLogPanel") as Control,
 		aquarium.get_node("%ShopPanel") as Control,
 	]
-	var water_clear_of_ui: bool = true
+	var water_clear_of_visible_ui: bool = true
 	var ui_inside_safe: bool = true
-	for ui_node in ui_nodes:
-		var ui_rect: Rect2 = Rect2(ui_node.position, ui_node.size)
-		water_clear_of_ui = water_clear_of_ui and not water_16_9.intersects(ui_rect)
-		ui_inside_safe = ui_inside_safe and ui_rect.position.x >= safe_16_9.position.x and ui_rect.position.y >= safe_16_9.position.y
-		ui_inside_safe = ui_inside_safe and ui_rect.end.x <= safe_16_9.end.x and ui_rect.end.y <= safe_16_9.end.y
 	var ui_layout_diagnostics: Array[String] = []
 	for ui_node in ui_nodes:
-		ui_layout_diagnostics.append("%s=%s" % [ui_node.name, str(Rect2(ui_node.position, ui_node.size))])
-	print("G1 layout 16:9 safe=%s water=%s safe_fit=%s disjoint=%s controls=%s" % [str(safe_16_9), str(water_16_9), str(water_inside_safe_16_9 and ui_inside_safe), str(water_clear_of_ui), str(ui_layout_diagnostics)])
-	_expect(water_inside_safe_16_9 and water_clear_of_ui and ui_inside_safe, "16:9 active water and HUD panels stay inside safe insets without covering the water")
+		var ui_rect: Rect2 = Rect2(ui_node.position, ui_node.size)
+		if ui_node.is_visible_in_tree():
+			water_clear_of_visible_ui = water_clear_of_visible_ui and not water_16_9.intersects(ui_rect)
+		ui_inside_safe = ui_inside_safe and ui_rect.position.x >= safe_16_9.position.x and ui_rect.position.y >= safe_16_9.position.y
+		ui_inside_safe = ui_inside_safe and ui_rect.end.x <= safe_16_9.end.x and ui_rect.end.y <= safe_16_9.end.y
+		ui_layout_diagnostics.append("%s visible=%s rect=%s" % [ui_node.name, str(ui_node.is_visible_in_tree()), str(ui_rect)])
+	var water_share_16_9: float = water_16_9.size.x * water_16_9.size.y / (safe_16_9.size.x * safe_16_9.size.y)
+	print("G1 layout 16:9 safe=%s water=%s share=%.3f safe_fit=%s visible_disjoint=%s controls=%s" % [str(safe_16_9), str(water_16_9), water_share_16_9, str(water_inside_safe_16_9 and ui_inside_safe), str(water_clear_of_visible_ui), str(ui_layout_diagnostics)])
+	_expect(water_inside_safe_16_9 and water_clear_of_visible_ui and ui_inside_safe, "16:9 active water and visible HUD stay inside safe insets without covering the water")
+	_expect(water_share_16_9 >= 0.45, "Default 16:9 water remains at least 45% of the safe area with log and shop closed")
+	await get_tree().create_timer(0.4).timeout
 	var all_bodies_fit_16_9: bool = true
 	var all_stage_one_ratios_fit: bool = true
 	for pet_id in GameState.get_active_pet_ids():
@@ -224,6 +234,7 @@ func _run() -> void:
 	var roster_backdrop: Control = aquarium.get_node("%PetRosterBackdrop") as Control
 	_expect(roster_backdrop.get_theme_stylebox("panel") == null or roster_backdrop.size.x > 0.0, "Roster layout retains a visible flat panel")
 	aquarium.call("_apply_responsive_layout")
+	await get_tree().create_timer(0.4).timeout
 	print("G1 acceptance: after roster/rename paused=%s eggs=%d" % [str(get_tree().paused), GameState.get_nursery_eggs().size()])
 	var hunger_before_by_pet: Dictionary = {}
 	for pet_id in GameState.get_active_pet_ids():
@@ -263,7 +274,7 @@ func _run() -> void:
 	_expect(GameState.get_food_drops().is_empty(), "Three food tokens are consumed once in the real Aquarium scene")
 	var food_pet_diagnostics: Array[String] = []
 	for pet_id in GameState.get_active_pet_ids():
-		var food_actor: Node2D = actors_by_id.get(pet_id) as Node2D
+		var food_actor: Node2D = actors.get(pet_id) as Node2D
 		if food_actor != null:
 			food_pet_diagnostics.append("%s:hunger=%d state=%s target=%s pos=%s" % [pet_id, int(GameState.get_pet(pet_id).get("hunger", 0)), str(food_actor.get("behavior_state")), str(food_actor.get("food_drop_id")), str(food_actor.global_position)])
 	print("G1 acceptance: food chase wait %.1fs drops=%s claims=%s actors=%s" % [wait_time, str(GameState.get_food_drops()), str(aquarium.get("food_claims")), str(food_pet_diagnostics)])
@@ -326,18 +337,66 @@ func _run() -> void:
 		SaveManager.save_game()
 		aquarium.call("_update_food_drops", 0.0)
 	_expect(GameState.get_inventory_count("food_basic") == inventory_before_duplicate_tap, "Duplicate world input does not spend food twice")
+	aquarium.call("_set_pet_info_open", false)
+	await get_tree().create_timer(0.4).timeout
 	var panel_drop: Dictionary = FoodDropSystem.drop_food((aquarium.get_node("%ActorAnchor") as Node2D).global_position + Vector2(120.0, 20.0))
 	var panel_drop_token: String = str(panel_drop.get("token_id", ""))
 	aquarium.call("_update_food_drops", 0.0)
 	var actor_instances_before_panels: Dictionary = {}
+	var actor_layout_before_panels: Dictionary = {}
+	var panel_target_pet_id: String = ""
 	for pet_id in GameState.get_active_pet_ids():
-		actor_instances_before_panels[pet_id] = int((aquarium.get("actors_by_id") as Dictionary)[pet_id].get_instance_id())
+		var panel_actor: Node2D = (aquarium.get("actors_by_id") as Dictionary).get(pet_id) as Node2D
+		actor_instances_before_panels[pet_id] = int(panel_actor.get_instance_id())
+		actor_layout_before_panels[pet_id] = {
+			"world_position": panel_actor.global_position,
+			"world_target": actor_anchor.to_global(panel_actor.get("roam_target")),
+			"pet_id": str(panel_actor.get("pet_id")),
+			"behavior_state": str(panel_actor.get("behavior_state")),
+			"food_drop_id": str(panel_actor.get("food_drop_id")),
+		}
+		if panel_target_pet_id.is_empty() and str(panel_actor.get("behavior_state")) == "approach_food" and not str(panel_actor.get("food_drop_id")).is_empty():
+			panel_target_pet_id = pet_id
+	if panel_target_pet_id.is_empty() and not panel_drop_token.is_empty():
+		for pet_id in GameState.get_active_pet_ids():
+			var panel_actor: Node2D = (aquarium.get("actors_by_id") as Dictionary).get(pet_id) as Node2D
+			if bool(panel_actor.call("can_accept_food")):
+				panel_target_pet_id = pet_id
+				panel_actor.call("set_food_target", panel_drop_token, actor_anchor.to_local(Vector2(float(panel_drop.get("x", 0.0)), float(panel_drop.get("y", 0.0)))))
+				(aquarium.get("food_claims") as Dictionary)[panel_drop_token] = pet_id
+				break
 	var actions_before_panels: Dictionary = aquarium.get("last_action_time_by_name") as Dictionary
 	actions_before_panels["shop"] = -999999.0
 	actions_before_panels["log_toggle"] = -999999.0
 	aquarium.set("last_action_time_by_name", actions_before_panels)
 	var runtime_log_panel: Control = aquarium.get_node("%RuntimeLogPanel") as Control
 	var shop_panel: Control = aquarium.get_node("%ShopPanel") as Control
+	var info_open_preserved_world: bool = not panel_target_pet_id.is_empty()
+	if not panel_target_pet_id.is_empty():
+		aquarium.call("_on_pet_roster_pressed", panel_target_pet_id)
+		var chase_actor: Node2D = (aquarium.get("actors_by_id") as Dictionary).get(panel_target_pet_id) as Node2D
+		var before_state: Dictionary = actor_layout_before_panels[panel_target_pet_id]
+		info_open_preserved_world = bool(aquarium.get("pet_info_open")) and chase_actor != null
+		info_open_preserved_world = info_open_preserved_world and int(chase_actor.get_instance_id()) == int(actor_instances_before_panels[panel_target_pet_id])
+		info_open_preserved_world = info_open_preserved_world and str(chase_actor.get("pet_id")) == str(before_state.get("pet_id"))
+		info_open_preserved_world = info_open_preserved_world and str(chase_actor.get("behavior_state")) == str(before_state.get("behavior_state"))
+		info_open_preserved_world = info_open_preserved_world and str(chase_actor.get("food_drop_id")) == str(before_state.get("food_drop_id"))
+		info_open_preserved_world = info_open_preserved_world and chase_actor.global_position.distance_to(before_state.get("world_position")) <= 0.5
+		info_open_preserved_world = info_open_preserved_world and actor_anchor.to_global(chase_actor.get("roam_target")).distance_to(before_state.get("world_target")) <= 0.5
+	_expect(info_open_preserved_world, "Selecting a pet opens its details without replacing its actor or moving its position/food target/behavior phase")
+	var info_close_preserved_world: bool = not panel_target_pet_id.is_empty()
+	if not panel_target_pet_id.is_empty():
+		var chase_actor_before_close: Node2D = (aquarium.get("actors_by_id") as Dictionary).get(panel_target_pet_id) as Node2D
+		var close_position_before: Vector2 = chase_actor_before_close.global_position
+		var close_target_before: Vector2 = actor_anchor.to_global(chase_actor_before_close.get("roam_target"))
+		aquarium.call("_set_pet_info_open", false)
+		var chase_actor_after_close: Node2D = (aquarium.get("actors_by_id") as Dictionary).get(panel_target_pet_id) as Node2D
+		info_close_preserved_world = not bool(aquarium.get("pet_info_open")) and chase_actor_after_close != null
+		info_close_preserved_world = info_close_preserved_world and int(chase_actor_after_close.get_instance_id()) == int(actor_instances_before_panels[panel_target_pet_id])
+		info_close_preserved_world = info_close_preserved_world and chase_actor_after_close.global_position.distance_to(close_position_before) <= 0.5
+		info_close_preserved_world = info_close_preserved_world and actor_anchor.to_global(chase_actor_after_close.get("roam_target")).distance_to(close_target_before) <= 0.5
+	_expect(info_close_preserved_world, "Closing pet details preserves live actor positions and current target")
+	await get_tree().create_timer(0.4).timeout
 	var log_was_open: bool = false
 	if OS.is_debug_build():
 		(aquarium.get_node("%LogToggleButton") as Button).pressed.emit()

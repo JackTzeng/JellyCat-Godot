@@ -5,6 +5,7 @@ const COIN_BUBBLE_SCENE: PackedScene = preload("res://scenes/ui/coin_bubble_pick
 const JELLYCAT_ACTOR_SCENE: PackedScene = preload("res://scenes/pet/jellycat_actor.tscn")
 const DEFAULT_TOUCH_COOLDOWN_SECONDS: float = 0.5
 const ACTION_DEBOUNCE_SECONDS: float = 0.3
+const LAYOUT_TRANSITION_SECONDS: float = 0.32
 
 @onready var coin_label: Label = %CoinLabel
 @onready var stage_label: Label = %StageLabel
@@ -56,6 +57,8 @@ var last_world_input_position: Vector2 = Vector2.ZERO
 var last_world_input_kind: int = -1
 var active_water_rect: Rect2 = Rect2()
 var rename_modal_active: bool = false
+var pet_info_button: Button
+var pet_info_open: bool = false
 
 func _ready() -> void:
 	DOS_STYLE.apply(self)
@@ -72,6 +75,17 @@ func _ready() -> void:
 	log_toggle_button.pressed.connect(_on_log_toggle_pressed)
 	log_toggle_button.visible = OS.is_debug_build()
 	runtime_log_panel.visible = false
+	status_backdrop.visible = true
+	top_panel.visible = true
+	_set_pet_info_widgets_visible(false)
+	pet_info_button = Button.new()
+	pet_info_button.name = "PetInfoButton"
+	pet_info_button.toggle_mode = true
+	pet_info_button.custom_minimum_size = Vector2(156.0, 56.0)
+	pet_info_button.pressed.connect(_on_pet_info_toggle_pressed)
+	pet_roster.add_child(pet_info_button)
+	DOS_STYLE.style_button(pet_info_button)
+	_update_pet_info_button()
 	shop_panel.visibility_changed.connect(_sync_modal_input_shield)
 	nursery_button.pressed.connect(_on_nursery_pressed)
 	rename_button.pressed.connect(_on_rename_pressed)
@@ -193,12 +207,56 @@ func _set_shop_open(should_open: bool) -> void:
 		runtime_log_panel.visible = false
 	shop_panel.visible = should_open
 	_sync_modal_input_shield()
+	_apply_responsive_layout()
 	if should_open:
 		shop_panel.call("refresh")
 
 
 func _sync_modal_input_shield() -> void:
 	modal_input_shield.visible = shop_panel.visible or rename_modal_active
+
+
+func _on_pet_info_toggle_pressed() -> void:
+	_set_pet_info_open(not pet_info_open)
+
+
+func _set_pet_info_open(should_open: bool) -> void:
+	if pet_info_open == should_open:
+		_update_pet_info_button()
+		return
+	pet_info_open = should_open
+	status_backdrop.visible = true
+	top_panel.visible = true
+	_set_pet_info_widgets_visible(should_open)
+	_update_pet_info_button()
+	_apply_responsive_layout()
+	_refresh(false)
+
+
+func _set_pet_info_widgets_visible(should_show: bool) -> void:
+	coin_label.visible = true
+	for detail_control in [
+		stage_label,
+		hunger_label,
+		hunger_bar,
+		mood_label,
+		mood_bar,
+		cleanliness_label,
+		clean_bar,
+		health_label,
+		exp_label,
+		touch_exp_label,
+		evolution_label,
+	]:
+		detail_control.visible = should_show
+	coin_label.add_theme_font_size_override("font_size", 22 if should_show else 16)
+
+
+func _update_pet_info_button() -> void:
+	if pet_info_button == null:
+		return
+	pet_info_button.text = "Hide Info" if pet_info_open else "Pet Info"
+	pet_info_button.button_pressed = pet_info_open
 
 
 func _on_daily_food_pressed() -> void:
@@ -227,6 +285,7 @@ func _on_log_toggle_pressed() -> void:
 	if should_show:
 		_set_shop_open(false)
 	runtime_log_panel.visible = should_show
+	_apply_responsive_layout()
 	_refresh(false)
 
 
@@ -253,6 +312,7 @@ func _on_rename_pressed() -> void:
 	if pet.is_empty():
 		return
 	runtime_log_panel.visible = false
+	_apply_responsive_layout()
 	nickname_edit.text = str(pet.get("nickname", "JellyCat"))
 	rename_modal_active = true
 	_sync_modal_input_shield()
@@ -368,7 +428,7 @@ func _refresh(log_refresh: bool = false) -> void:
 	var mood_value: int = int(jellycat.get("mood", 0))
 	var cleanliness_value: int = int(GameState.get_aquarium().get("cleanliness", 100))
 	var growth_exp: int = int(jellycat.get("growth_exp", 0))
-	coin_label.text = "Bubble Coin: %d" % GameState.get_currency("bubble_coin")
+	coin_label.text = ("Bubble Coin: %d" if pet_info_open else "Coin: %d") % GameState.get_currency("bubble_coin")
 	stage_label.text = "%s  Stage %d · %s" % [str(jellycat.get("nickname", "JellyCat")), int(jellycat.get("stage", 1)), str(stage_data.get("name", ""))]
 	hunger_label.text = "Hunger: %d / 100" % hunger_value
 	mood_label.text = "Mood: %d / 100" % mood_value
@@ -490,10 +550,13 @@ func _refresh_pet_roster() -> void:
 		button.tooltip_text = "Select pet ID %s" % pet_id
 		button.button_pressed = pet_id == GameState.get_selected_pet_id()
 		pet_roster.move_child(button, index)
+	_update_pet_info_button()
 
 
 func _on_pet_roster_pressed(pet_id: String) -> void:
-	if GameState.set_selected_pet_id(pet_id):
+	if GameState.get_active_pet_ids().has(pet_id):
+		GameState.set_selected_pet_id(pet_id)
+		_set_pet_info_open(true)
 		_refresh(false)
 
 
@@ -522,10 +585,11 @@ func _layout_ui(viewport_size: Vector2, safe_rect: Rect2) -> void:
 	var safe_bottom: float = minf(viewport_size.y, safe_rect.position.y + safe_rect.size.y)
 	var safe_width: float = maxf(1.0, safe_right - safe_left)
 	var safe_height: float = maxf(1.0, safe_bottom - safe_top)
-	var left_width: float = clampf(safe_width * 0.28, 240.0, 460.0)
-	var right_width: float = clampf(safe_width * 0.19, 220.0, 340.0)
+	var status_width: float = clampf(safe_width * 0.28, 240.0, 460.0) if pet_info_open else 156.0
+	var status_height: float = 308.0 if pet_info_open else 44.0
+	var right_width: float = clampf(safe_width * 0.18, 220.0, 340.0)
 	var top_y: float = safe_top + margin
-	var status_rect: Rect2 = Rect2(Vector2(safe_left + margin, top_y + 80.0), Vector2(left_width, 308.0))
+	var status_rect: Rect2 = Rect2(Vector2(safe_left + margin, top_y + 80.0), Vector2(status_width, status_height))
 	_place_control(status_backdrop, status_rect)
 	_place_control(top_panel, Rect2(status_rect.position + Vector2(12.0, 8.0), status_rect.size - Vector2(24.0, 16.0)))
 	var inventory_rect: Rect2 = Rect2(Vector2(safe_right - margin - right_width, top_y + 80.0), Vector2(right_width, 126.0))
@@ -537,7 +601,7 @@ func _layout_ui(viewport_size: Vector2, safe_rect: Rect2) -> void:
 	_place_control(pet_roster_backdrop, Rect2(pet_roster.position - Vector2(8.0, 4.0), pet_roster.size + Vector2(16.0, 8.0)))
 	var touch_target: float = DOS_STYLE.get_touch_target_height(viewport_size)
 	var action_width_limit: float = maxf(16.0, safe_width - margin * 2.0)
-	var action_width: float = minf(action_width_limit, minf(380.0, maxf(touch_target * 2.0 + 28.0, safe_width * 0.24)))
+	var action_width: float = minf(action_width_limit, minf(380.0, maxf(touch_target * 2.0 + 28.0, safe_width * 0.19)))
 	var action_rows: int = int(ceil(float(action_bar.get_child_count()) / 2.0))
 	var action_height_limit: float = maxf(17.0, safe_height - margin * 2.0)
 	var action_height: float = minf(action_rows * touch_target + maxf(0.0, action_rows - 1) * 12.0 + 16.0, action_height_limit)
@@ -556,29 +620,44 @@ func _layout_ui(viewport_size: Vector2, safe_rect: Rect2) -> void:
 	var shop_height: float = maxf(220.0, shop_panel.get_combined_minimum_size().y)
 	shop_panel.custom_minimum_size = Vector2(shop_width, shop_height)
 	_place_control(shop_panel, Rect2(Vector2(safe_left + margin, minf(top_y + 416.0, safe_bottom - margin - shop_height)), Vector2(shop_width, shop_height)))
-	var message_left: float = safe_left + margin + left_width + margin
+	var message_left: float = status_rect.end.x + margin
 	var message_right: float = safe_right - margin - right_width - margin
 	_place_control(message_label, Rect2(Vector2(message_left, top_y + 76.0), Vector2(maxf(0.0, message_right - message_left), 38.0)))
 	var left_panel_edge: float = safe_left
 	for left_panel in [status_backdrop, runtime_log_panel, shop_panel]:
-		left_panel_edge = maxf(left_panel_edge, left_panel.position.x + left_panel.size.x)
+		if left_panel.is_visible_in_tree():
+			left_panel_edge = maxf(left_panel_edge, left_panel.position.x + left_panel.size.x)
 	var right_panel_edge: float = safe_right
 	for right_panel in [inventory_backdrop, action_backdrop]:
-		right_panel_edge = minf(right_panel_edge, right_panel.position.x)
+		if right_panel.is_visible_in_tree():
+			right_panel_edge = minf(right_panel_edge, right_panel.position.x)
 	var top_panel_edge: float = safe_top
 	for top_panel in [pet_roster_backdrop, message_label]:
-		top_panel_edge = maxf(top_panel_edge, top_panel.position.y + top_panel.size.y)
+		if top_panel.is_visible_in_tree():
+			top_panel_edge = maxf(top_panel_edge, top_panel.position.y + top_panel.size.y)
 	var water_left: float = maxf(safe_left + margin, left_panel_edge + margin)
 	var water_right: float = minf(safe_right - margin, right_panel_edge - margin)
 	var water_top: float = maxf(safe_top + margin, top_panel_edge + margin)
 	var water_bottom: float = safe_bottom - margin
 	active_water_rect = Rect2(Vector2(water_left, water_top), Vector2(maxf(1.0, water_right - water_left), maxf(1.0, water_bottom - water_top)))
+	var previous_anchor_position: Vector2 = actor_anchor.position
 	actor_anchor.position = active_water_rect.get_center()
+	var anchor_delta: Vector2 = actor_anchor.position - previous_anchor_position
 	var local_water_bounds: Rect2 = Rect2(-active_water_rect.size / 2.0, active_water_rect.size)
-	for actor_value in actors_by_id.values():
-		var actor: Node = actor_value as Node
-		if is_instance_valid(actor):
-			actor.call("set_water_bounds", local_water_bounds)
+	var layout_actor_positions: Array[Vector2] = []
+	for pet_id in GameState.get_active_pet_ids():
+		var actor: Node2D = actors_by_id.get(pet_id) as Node2D
+		if not is_instance_valid(actor):
+			continue
+		var target_position: Vector2 = actor.call(
+			"set_layout_water_bounds",
+			local_water_bounds,
+			anchor_delta,
+			LAYOUT_TRANSITION_SECONDS,
+			layout_actor_positions,
+			touch_target
+		)
+		layout_actor_positions.append(target_position)
 
 
 func _place_control(control: Control, target_rect: Rect2) -> void:
@@ -758,6 +837,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			selected_actor = actor
 	if selected_actor != null:
 		GameState.set_selected_pet_id(str(selected_actor.get("pet_id")))
+		_set_pet_info_open(true)
 		selected_actor.call("react_to_touch")
 		return
 	_drop_basic_food(screen_position)
