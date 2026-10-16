@@ -236,6 +236,7 @@ func _run() -> void:
 	aquarium.call("_apply_responsive_layout")
 	await get_tree().create_timer(0.4).timeout
 	print("G1 acceptance: after roster/rename paused=%s eggs=%d" % [str(get_tree().paused), GameState.get_nursery_eggs().size()])
+	await _run_food_geometry_regression(aquarium, actor_anchor, actors)
 	var hunger_before_by_pet: Dictionary = {}
 	for pet_id in GameState.get_active_pet_ids():
 		var actor: Node = actors.get(pet_id) as Node
@@ -383,6 +384,16 @@ func _run() -> void:
 		info_open_preserved_world = info_open_preserved_world and str(chase_actor.get("food_drop_id")) == str(before_state.get("food_drop_id"))
 		info_open_preserved_world = info_open_preserved_world and chase_actor.global_position.distance_to(before_state.get("world_position")) <= 0.5
 		info_open_preserved_world = info_open_preserved_world and actor_anchor.to_global(chase_actor.get("roam_target")).distance_to(before_state.get("world_target")) <= 0.5
+		if not info_open_preserved_world:
+			print("G1 panel-open preservation diagnostic: pet=%s actor=%s before=%s after_position=%s after_target=%s" % [
+				panel_target_pet_id,
+				str(chase_actor),
+				str(before_state),
+				"missing" if chase_actor == null else str(chase_actor.global_position),
+				"missing" if chase_actor == null else str(actor_anchor.to_global(chase_actor.get("roam_target"))),
+			])
+	else:
+		print("G1 panel-open preservation diagnostic: no feed-ready actor for token=%s claims=%s" % [panel_drop_token, str(aquarium.get("food_claims"))])
 	_expect(info_open_preserved_world, "Selecting a pet opens its details without replacing its actor or moving its position/food target/behavior phase")
 	var info_close_preserved_world: bool = not panel_target_pet_id.is_empty()
 	if not panel_target_pet_id.is_empty():
@@ -481,6 +492,383 @@ func _run() -> void:
 	aquarium.queue_free()
 	await get_tree().process_frame
 	_finish()
+
+
+func _run_food_geometry_regression(aquarium: Control, actor_anchor: Node2D, actors: Dictionary) -> void:
+	var pet_ids: Array[String] = GameState.get_active_pet_ids()
+	_expect(pet_ids.size() == 3, "Food geometry regression starts with three active actors")
+	_expect(GameState.get_food_drops().is_empty(), "Food geometry regression starts with an empty feed ledger")
+	if pet_ids.size() != 3 or not GameState.get_food_drops().is_empty():
+		return
+
+	var baseline_pets: Dictionary = {}
+	for pet_id in pet_ids:
+		baseline_pets[pet_id] = GameState.get_pet(pet_id)
+	var baseline_inventory: int = GameState.get_inventory_count("food_basic")
+	var test_case_count: int = 22
+	GameState.set_inventory_count("food_basic", baseline_inventory + test_case_count)
+	var original_viewport: Vector2 = aquarium.get_viewport_rect().size
+	var original_safe: Rect2 = aquarium.call("_get_safe_viewport_rect", original_viewport)
+	var original_info_open: bool = bool(aquarium.get("pet_info_open"))
+	var original_passive_timer: float = float(aquarium.get("passive_timer"))
+	aquarium.set("passive_timer", -1000.0)
+	aquarium.call("_set_pet_info_open", false)
+
+	var layouts: Array[Dictionary] = [
+		{"name": "16:9", "viewport": Vector2(1280.0, 720.0), "safe": Rect2(Vector2(24.0, 12.0), Vector2(1232.0, 696.0))},
+		{"name": "20:9", "viewport": Vector2(2400.0, 1080.0), "safe": Rect2(Vector2(40.0, 24.0), Vector2(2320.0, 1032.0))},
+	]
+	var corners: Array[String] = ["top-left", "top-right", "bottom-left", "bottom-right"]
+	var matrix_case_index: int = 0
+
+	var remote_layout: Dictionary = layouts[1]
+	aquarium.call("_layout_ui", remote_layout["viewport"], remote_layout["safe"])
+	await get_tree().process_frame
+	await get_tree().create_timer(0.4).timeout
+	await _run_food_remote_case(
+		aquarium,
+		actor_anchor,
+		actors.get(pet_ids[0]) as Node2D,
+		pet_ids[0],
+		baseline_pets[pet_ids[0]],
+		remote_layout
+	)
+
+	for layout in layouts:
+		aquarium.call("_layout_ui", layout["viewport"], layout["safe"])
+		await get_tree().process_frame
+		await get_tree().create_timer(0.4).timeout
+		for stage_value in [1, 5]:
+			var stage: int = int(stage_value)
+			var water: Rect2 = aquarium.get("active_water_rect")
+			for corner in corners:
+				var raw_position: Vector2 = water.position
+				match corner:
+					"top-right":
+						raw_position = Vector2(water.end.x, water.position.y)
+					"bottom-left":
+						raw_position = Vector2(water.position.x, water.end.y)
+					"bottom-right":
+						raw_position = water.end
+				var pet_id: String = pet_ids[matrix_case_index % pet_ids.size()]
+				await _run_food_contact_case(
+					aquarium,
+					actor_anchor,
+					actors.get(pet_id) as Node2D,
+					pet_id,
+					baseline_pets[pet_id],
+					stage,
+					"%s stage %d %s" % [str(layout["name"]), stage, corner],
+					raw_position,
+					false
+				)
+				matrix_case_index += 1
+
+			water = aquarium.get("active_water_rect")
+			var floor_pet_id: String = pet_ids[matrix_case_index % pet_ids.size()]
+			await _run_food_contact_case(
+				aquarium,
+				actor_anchor,
+				actors.get(floor_pet_id) as Node2D,
+				floor_pet_id,
+				baseline_pets[floor_pet_id],
+				stage,
+				"%s stage %d fully-sunk floor" % [str(layout["name"]), stage],
+				Vector2(water.get_center().x, water.position.y + 20.0),
+				true
+			)
+			matrix_case_index += 1
+
+	var chase_layout: Dictionary = layouts[0]
+	aquarium.call("_layout_ui", chase_layout["viewport"], chase_layout["safe"])
+	await get_tree().process_frame
+	await get_tree().create_timer(0.4).timeout
+	await _run_food_panel_chase_case(
+		aquarium,
+		actor_anchor,
+		actors.get(pet_ids[1]) as Node2D,
+		pet_ids[1],
+		baseline_pets[pet_ids[1]],
+		chase_layout
+	)
+
+	for pet_id in pet_ids:
+		GameState.set_pet(pet_id, baseline_pets[pet_id])
+		var actor: Node2D = actors.get(pet_id) as Node2D
+		if actor != null:
+			actor.call("refresh_pet")
+	GameState.set_inventory_count("food_basic", baseline_inventory)
+	aquarium.set("passive_timer", original_passive_timer)
+	SaveManager.save_game()
+	if original_info_open:
+		aquarium.call("_set_pet_info_open", true)
+	aquarium.call("_layout_ui", original_viewport, original_safe)
+	await get_tree().create_timer(0.4).timeout
+	for pet_id in pet_ids:
+		var actor: Node2D = actors.get(pet_id) as Node2D
+		var ready_wait: float = 0.0
+		while actor != null and not bool(actor.call("can_accept_food")) and ready_wait < 3.0:
+			await get_tree().create_timer(0.1).timeout
+			ready_wait += 0.1
+		_expect(actor != null and bool(actor.call("can_accept_food")), "%s returns to feeding-ready state after geometry fixtures" % pet_id)
+	print("G1 food geometry regression: callbacks=%d layouts=16:9,20:9 stages=1,5 corners=4 floor=4 remote=1 panel-chase=1" % test_case_count)
+
+
+func _run_food_contact_case(
+	aquarium: Control,
+	actor_anchor: Node2D,
+	actor: Node2D,
+	pet_id: String,
+	baseline_pet: Dictionary,
+	stage: int,
+	label: String,
+	raw_position: Vector2,
+	sink_to_floor: bool
+) -> void:
+	var ready_wait: float = 0.0
+	while actor != null and not bool(actor.call("can_accept_food")) and ready_wait < 3.0:
+		await get_tree().create_timer(0.1).timeout
+		ready_wait += 0.1
+	if actor == null or not bool(actor.call("can_accept_food")):
+		_expect(false, "%s actor is ready for a geometry feed" % label)
+		return
+
+	var test_pet: Dictionary = baseline_pet.duplicate(true)
+	test_pet["hunger"] = 35
+	GameState.set_pet(pet_id, test_pet)
+	actor.call("refresh_pet")
+	actor.call("set_stage", stage, str(test_pet.get("species_id", "normal_jellycat")))
+	var inventory_before: int = GameState.get_inventory_count("food_basic")
+	var growth_exp_before: int = int(test_pet.get("growth_exp", 0))
+	var expected_food_exp: int = int(GameApp.get_table("items").get("food_basic", {}).get("growth_exp_add", 0))
+	var drop: Dictionary = aquarium.call("_drop_basic_food", raw_position, pet_id)
+	var token_id: String = str(drop.get("token_id", ""))
+	_expect(not token_id.is_empty(), "%s reserves one regression feed" % label)
+	if token_id.is_empty():
+		GameState.set_pet(pet_id, baseline_pet)
+		actor.call("refresh_pet")
+		return
+
+	aquarium.call("_update_food_drops", 0.0)
+	var visuals: Dictionary = aquarium.get("food_drop_visuals")
+	var marker: Control = visuals.get(token_id) as Control
+	_expect(marker is Panel and marker.size == Vector2(32.0, 32.0), "%s uses the fixed native food marker" % label)
+	if marker == null:
+		_clear_food_regression_token(aquarium, actor, token_id)
+		GameState.set_pet(pet_id, baseline_pet)
+		actor.call("refresh_pet")
+		return
+
+	var water: Rect2 = aquarium.get("active_water_rect")
+	var marker_half: Vector2 = Vector2(16.0, 16.0)
+	var expected_center: Vector2 = Vector2(
+		clampf(raw_position.x, water.position.x + marker_half.x, water.end.x - marker_half.x),
+		clampf(raw_position.y, water.position.y + marker_half.y, water.end.y - marker_half.y)
+	)
+	var marker_center: Vector2 = marker.global_position + marker.size / 2.0
+	_expect(marker_center.distance_to(expected_center) <= 0.5, "%s chases the clamped marker center" % label)
+	if sink_to_floor:
+		aquarium.call("_update_food_drops", 60.0)
+		marker_center = marker.global_position + marker.size / 2.0
+		water = aquarium.get("active_water_rect")
+		_expect(absf(marker.global_position.y + marker.size.y - water.end.y) <= 0.5, "%s keeps the fully-sunk marker inside the floor" % label)
+	var marker_rect: Rect2 = Rect2(marker.global_position, marker.size)
+	var fully_inside_water: bool = marker_rect.position.x >= water.position.x - 0.5 and marker_rect.position.y >= water.position.y - 0.5
+	fully_inside_water = fully_inside_water and marker_rect.end.x <= water.end.x + 0.5 and marker_rect.end.y <= water.end.y + 0.5
+	_expect(fully_inside_water, "%s keeps the entire marker inside the active water" % label)
+	_expect(str((aquarium.get("food_claims") as Dictionary).get(token_id, "")) == pet_id, "%s preserves its single actor claim" % label)
+
+	var target_local: Vector2 = actor.get("roam_target")
+	actor.position = target_local
+	await get_tree().process_frame
+	aquarium.call("_update_food_drops", 0.0)
+	var wait_time: float = 0.0
+	while not GameState.get_food_drops().is_empty() and wait_time < 1.5:
+		await get_tree().create_timer(0.1).timeout
+		wait_time += 0.1
+	var remaining_drops: Array[Dictionary] = GameState.get_food_drops()
+	var token_remains: bool = false
+	for remaining in remaining_drops:
+		token_remains = token_remains or str(remaining.get("token_id", "")) == token_id
+	var fed_pet: Dictionary = GameState.get_pet(pet_id)
+	if token_remains or int(fed_pet.get("hunger", 0)) != 65:
+		var final_marker: Control = (aquarium.get("food_drop_visuals") as Dictionary).get(token_id) as Control
+		var marker_rect_final: Rect2 = Rect2() if final_marker == null else Rect2(final_marker.global_position, final_marker.size)
+		print("G1 food contact diagnostic: case=%s wait=%.1f actor=%s target=%s body=%s marker=%s contact=%s state=%s" % [
+			label,
+			wait_time,
+			str(actor.global_position),
+			str(actor_anchor.to_global(actor.get("roam_target"))),
+			str(actor.call("get_visual_body_rect_global")),
+			str(marker_rect_final),
+			str(final_marker != null and bool(aquarium.call("_actor_contacts_food", actor, final_marker))),
+			str(actor.get("behavior_state")),
+		])
+	_expect(not token_remains, "%s completes the real eat timer and food_eaten consume callback" % label)
+	_expect(int(fed_pet.get("hunger", 0)) == 65, "%s grants one feed benefit" % label)
+	_expect(int(fed_pet.get("growth_exp", 0)) == growth_exp_before + expected_food_exp, "%s grants the configured food EXP exactly once" % label)
+	_expect(GameState.get_inventory_count("food_basic") == inventory_before - 1, "%s spends one food token" % label)
+	_expect(not (aquarium.get("food_claims") as Dictionary).has(token_id), "%s clears its completed claim" % label)
+	_expect(not (aquarium.get("food_drop_visuals") as Dictionary).has(token_id), "%s removes its completed marker" % label)
+	if token_remains:
+		_clear_food_regression_token(aquarium, actor, token_id)
+	GameState.set_pet(pet_id, baseline_pet)
+	actor.call("refresh_pet")
+	SaveManager.save_game()
+
+
+func _run_food_remote_case(
+	aquarium: Control,
+	actor_anchor: Node2D,
+	actor: Node2D,
+	pet_id: String,
+	baseline_pet: Dictionary,
+	layout: Dictionary
+) -> void:
+	var test_pet: Dictionary = baseline_pet.duplicate(true)
+	test_pet["hunger"] = 35
+	GameState.set_pet(pet_id, test_pet)
+	actor.call("refresh_pet")
+	actor.call("set_stage", 5, str(test_pet.get("species_id", "normal_jellycat")))
+	var water: Rect2 = aquarium.get("active_water_rect")
+	actor.position = actor_anchor.to_local(water.position + Vector2(48.0, 48.0))
+	var inventory_before: int = GameState.get_inventory_count("food_basic")
+	var growth_exp_before: int = int(test_pet.get("growth_exp", 0))
+	var expected_food_exp: int = int(GameApp.get_table("items").get("food_basic", {}).get("growth_exp_add", 0))
+	var drop: Dictionary = aquarium.call("_drop_basic_food", water.end, pet_id)
+	var token_id: String = str(drop.get("token_id", ""))
+	_expect(not token_id.is_empty(), "Remote-food regression reserves one feed")
+	if token_id.is_empty():
+		GameState.set_pet(pet_id, baseline_pet)
+		actor.call("refresh_pet")
+		return
+
+	aquarium.call("_update_food_drops", 0.0)
+	await get_tree().create_timer(0.65).timeout
+	var drops_before_contact: Array[Dictionary] = GameState.get_food_drops()
+	var remote_token_remains: bool = not drops_before_contact.is_empty() and str(drops_before_contact[0].get("token_id", "")) == token_id
+	_expect(remote_token_remains, "A distant 20:9 stage-5 food marker does not award an immediate meal")
+	_expect(int(GameState.get_pet(pet_id).get("hunger", 0)) == 35, "A distant marker leaves hunger unchanged before contact")
+
+	var target_local: Vector2 = actor.get("roam_target")
+	actor.position = target_local
+	await get_tree().process_frame
+	aquarium.call("_update_food_drops", 0.0)
+	var wait_time: float = 0.0
+	while not GameState.get_food_drops().is_empty() and wait_time < 1.5:
+		await get_tree().create_timer(0.1).timeout
+		wait_time += 0.1
+	var token_remains: bool = false
+	for remaining in GameState.get_food_drops():
+		token_remains = token_remains or str(remaining.get("token_id", "")) == token_id
+	_expect(not token_remains, "The remote regression feed completes only after visible body contact")
+	_expect(int(GameState.get_pet(pet_id).get("hunger", 0)) == 65, "The remote regression feed gives one benefit after contact")
+	_expect(int(GameState.get_pet(pet_id).get("growth_exp", 0)) == growth_exp_before + expected_food_exp, "The remote regression feed grants the configured EXP exactly once")
+	_expect(GameState.get_inventory_count("food_basic") == inventory_before - 1, "The remote regression feed spends one token")
+	_expect(not (aquarium.get("food_claims") as Dictionary).has(token_id), "The remote regression clears its claim")
+	_expect(not (aquarium.get("food_drop_visuals") as Dictionary).has(token_id), "The remote regression removes its marker")
+	if token_remains:
+		_clear_food_regression_token(aquarium, actor, token_id)
+	GameState.set_pet(pet_id, baseline_pet)
+	actor.call("refresh_pet")
+	SaveManager.save_game()
+	print("G1 food geometry remote probe: layout=%s stage=5 token=%s remote_wait=0.65s remaining=%s" % [str(layout["name"]), token_id, str(remote_token_remains)])
+
+
+func _run_food_panel_chase_case(
+	aquarium: Control,
+	actor_anchor: Node2D,
+	actor: Node2D,
+	pet_id: String,
+	baseline_pet: Dictionary,
+	layout: Dictionary
+) -> void:
+	var ready_wait: float = 0.0
+	while not bool(actor.call("can_accept_food")) and ready_wait < 3.0:
+		await get_tree().create_timer(0.1).timeout
+		ready_wait += 0.1
+	if not bool(actor.call("can_accept_food")):
+		_expect(false, "Panel chase actor is ready for a geometry feed")
+		return
+
+	var test_pet: Dictionary = baseline_pet.duplicate(true)
+	test_pet["hunger"] = 35
+	GameState.set_pet(pet_id, test_pet)
+	actor.call("refresh_pet")
+	actor.call("set_stage", 1, str(test_pet.get("species_id", "normal_jellycat")))
+	var water: Rect2 = aquarium.get("active_water_rect")
+	var drop_position: Vector2 = water.get_center() + Vector2(160.0, 0.0)
+	var inventory_before: int = GameState.get_inventory_count("food_basic")
+	var growth_exp_before: int = int(test_pet.get("growth_exp", 0))
+	var expected_food_exp: int = int(GameApp.get_table("items").get("food_basic", {}).get("growth_exp_add", 0))
+	var drop: Dictionary = aquarium.call("_drop_basic_food", drop_position, pet_id)
+	var token_id: String = str(drop.get("token_id", ""))
+	_expect(not token_id.is_empty(), "Panel chase regression reserves one feed")
+	if token_id.is_empty():
+		GameState.set_pet(pet_id, baseline_pet)
+		actor.call("refresh_pet")
+		return
+
+	aquarium.call("_update_food_drops", 0.0)
+	var target_local: Vector2 = actor.get("roam_target")
+	actor.position = Vector2(target_local.x - 180.0, target_local.y)
+	await get_tree().create_timer(0.25).timeout
+	aquarium.call("_set_pet_info_open", true)
+	await get_tree().create_timer(0.2).timeout
+	var open_chase_valid: bool = GameState.get_food_drops().size() == 1
+	open_chase_valid = open_chase_valid and str((aquarium.get("food_claims") as Dictionary).get(token_id, "")) == pet_id
+	open_chase_valid = open_chase_valid and str(actor.get("food_drop_id")) == token_id
+	open_chase_valid = open_chase_valid and str(actor.get("behavior_state")) == "approach_food"
+	_expect(open_chase_valid, "Opening pet details during a real chase preserves the food claim and approach phase")
+	var open_marker: Control = (aquarium.get("food_drop_visuals") as Dictionary).get(token_id) as Control
+	_expect(_food_marker_fits_active_water(aquarium, open_marker), "Opening pet details keeps the full food marker inside the resized water")
+	aquarium.call("_set_pet_info_open", false)
+	await get_tree().create_timer(0.2).timeout
+	var close_chase_valid: bool = GameState.get_food_drops().size() == 1
+	close_chase_valid = close_chase_valid and str((aquarium.get("food_claims") as Dictionary).get(token_id, "")) == pet_id
+	close_chase_valid = close_chase_valid and str(actor.get("food_drop_id")) == token_id
+	var close_chase_state: String = str(actor.get("behavior_state"))
+	close_chase_valid = close_chase_valid and (close_chase_state == "approach_food" or close_chase_state == "eat")
+	_expect(close_chase_valid, "Closing pet details preserves the live chase through approach or its eat timer")
+	var closed_marker: Control = (aquarium.get("food_drop_visuals") as Dictionary).get(token_id) as Control
+	_expect(_food_marker_fits_active_water(aquarium, closed_marker), "Closing pet details keeps the full food marker inside the resized water")
+	var chase_wait: float = 0.0
+	while not GameState.get_food_drops().is_empty() and chase_wait < 5.0:
+		await get_tree().create_timer(0.1).timeout
+		chase_wait += 0.1
+	var token_remains: bool = not GameState.get_food_drops().is_empty()
+	_expect(not token_remains, "The live panel-transition chase reaches the real eat callback")
+	_expect(int(GameState.get_pet(pet_id).get("hunger", 0)) == 65, "The panel-transition chase grants one meal")
+	_expect(int(GameState.get_pet(pet_id).get("growth_exp", 0)) == growth_exp_before + expected_food_exp, "The panel-transition chase grants the configured EXP exactly once")
+	_expect(GameState.get_inventory_count("food_basic") == inventory_before - 1, "The panel-transition chase spends one token")
+	_expect(not (aquarium.get("food_claims") as Dictionary).has(token_id), "The panel-transition chase clears its claim")
+	_expect(not (aquarium.get("food_drop_visuals") as Dictionary).has(token_id), "The panel-transition chase removes its marker")
+	if token_remains:
+		_clear_food_regression_token(aquarium, actor, token_id)
+	GameState.set_pet(pet_id, baseline_pet)
+	actor.call("refresh_pet")
+	SaveManager.save_game()
+	print("G1 food geometry chase probe: layout=%s stage=1 panel_open_close=true wait=%.1fs" % [str(layout["name"]), chase_wait])
+
+
+func _clear_food_regression_token(aquarium: Control, actor: Node2D, token_id: String) -> void:
+	actor.call("clear_food_target", token_id)
+	if GameState.resolve_food_drop(token_id):
+		SaveManager.save_game()
+	aquarium.call("_update_food_drops", 0.0)
+
+
+func _food_marker_fits_active_water(aquarium: Control, marker: Control) -> bool:
+	if marker == null:
+		return false
+	var water: Rect2 = aquarium.get("active_water_rect")
+	var marker_rect: Rect2 = Rect2(marker.global_position, marker.size)
+	return (
+		marker_rect.position.x >= water.position.x - 0.5
+		and marker_rect.position.y >= water.position.y - 0.5
+		and marker_rect.end.x <= water.end.x + 0.5
+		and marker_rect.end.y <= water.end.y + 0.5
+	)
 
 
 func _expect(condition: bool, label: String) -> void:

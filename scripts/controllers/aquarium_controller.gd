@@ -6,6 +6,7 @@ const JELLYCAT_ACTOR_SCENE: PackedScene = preload("res://scenes/pet/jellycat_act
 const DEFAULT_TOUCH_COOLDOWN_SECONDS: float = 0.5
 const ACTION_DEBOUNCE_SECONDS: float = 0.3
 const LAYOUT_TRANSITION_SECONDS: float = 0.32
+const FOOD_MARKER_SIZE: Vector2 = Vector2(32.0, 32.0)
 
 @onready var coin_label: Label = %CoinLabel
 @onready var stage_label: Label = %StageLabel
@@ -681,7 +682,7 @@ func _has_sick_active_pet() -> bool:
 
 
 func _drop_basic_food(screen_position: Vector2, target_pet_id: String = "") -> Dictionary:
-	screen_position = _clamp_to_rect(screen_position, active_water_rect, 24.0)
+	screen_position = _clamp_food_interaction_point(screen_position)
 	var drop: Dictionary = FoodDropSystem.drop_food(screen_position)
 	if drop.is_empty():
 		_show_message("No basic food available.")
@@ -702,21 +703,21 @@ func _update_food_drops(delta: float) -> void:
 		var token_id: String = str(drop.get("token_id", ""))
 		drops_by_token[token_id] = drop
 		if not food_drop_visuals.has(token_id):
-			var food: Label = Label.new()
-			food.text = "●"
-			food.position = _clamp_to_rect(Vector2(float(drop.get("x", 0.0)), float(drop.get("y", 0.0))), active_water_rect, 24.0)
-			food.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			food.add_theme_font_size_override("font_size", 38)
-			food.add_theme_color_override("font_color", Color(1.0, 0.91, 0.57, 1.0))
-			food.add_theme_color_override("font_outline_color", Color(0.15, 0.1, 0.12, 0.9))
-			food.add_theme_constant_override("outline_size", 5)
+			var food: Panel = _create_food_marker()
 			food_drop_container.add_child(food)
+			var initial_center: Vector2 = _clamp_food_interaction_point(
+				Vector2(float(drop.get("x", 0.0)), float(drop.get("y", 0.0)))
+			)
+			food.global_position = initial_center - FOOD_MARKER_SIZE / 2.0
 			food_drop_visuals[token_id] = food
-		var visual: Label = food_drop_visuals[token_id] as Label
-		visual.position = _clamp_to_rect(visual.position, active_water_rect, 24.0)
-		var floor_y: float = active_water_rect.end.y - 24.0
-		if visual.position.y < floor_y:
-			visual.position.y = minf(floor_y, visual.position.y + float(GameApp.get_balance_value("food_sink_speed", 18.0)) * delta)
+		var visual: Control = food_drop_visuals[token_id] as Control
+		var interaction_point: Vector2 = _clamp_food_interaction_point(_food_marker_center(visual))
+		var floor_y: float = active_water_rect.end.y - FOOD_MARKER_SIZE.y / 2.0
+		interaction_point.y = minf(
+			floor_y,
+			interaction_point.y + float(GameApp.get_balance_value("food_sink_speed", 18.0)) * delta
+		)
+		visual.global_position = interaction_point - visual.size / 2.0
 
 	for token_id in food_drop_visuals.keys():
 		if drops_by_token.has(str(token_id)):
@@ -741,23 +742,25 @@ func _update_food_drops(delta: float) -> void:
 		var token_id: String = str(drop.get("token_id", ""))
 		if food_claims.has(token_id):
 			continue
-		var drop_position: Vector2 = Vector2(float(drop.get("x", 0.0)), float(drop.get("y", 0.0)))
-		var pet_id: String = _choose_food_pet(occupied_pet_ids, drop_position)
+		var visual: Control = food_drop_visuals.get(token_id) as Control
+		if visual == null:
+			continue
+		var pet_id: String = _choose_food_pet(occupied_pet_ids, _food_marker_center(visual))
 		if pet_id.is_empty():
 			continue
 		food_claims[token_id] = pet_id
 		occupied_pet_ids[pet_id] = true
 
-	var eat_radius: float = float(GameApp.get_balance_value("food_eat_radius", 64.0))
 	for token_id in food_claims.keys():
 		var pet_id: String = str(food_claims[token_id])
 		var actor: Node2D = actors_by_id.get(pet_id) as Node2D
-		var visual: Label = food_drop_visuals.get(token_id) as Label
+		var visual: Control = food_drop_visuals.get(token_id) as Control
 		if actor == null or visual == null or not actor.call("can_accept_food"):
 			continue
-		var target_position: Vector2 = actor_anchor.to_local(visual.global_position + visual.size / 2.0)
+		var interaction_point: Vector2 = _food_marker_center(visual)
+		var target_position: Vector2 = actor_anchor.to_local(interaction_point)
 		actor.call("set_food_target", str(token_id), target_position)
-		if actor.position.distance_to(target_position) <= eat_radius:
+		if _actor_contacts_food(actor, visual):
 			actor.call("begin_eating", str(token_id))
 
 
@@ -779,6 +782,38 @@ func _choose_food_pet(occupied_pet_ids: Dictionary, food_position: Vector2) -> S
 			closest_distance = distance
 			closest_pet_id = pet_id
 	return closest_pet_id
+
+
+func _create_food_marker() -> Panel:
+	var marker: Panel = Panel.new()
+	marker.name = "FoodMarker"
+	marker.size = FOOD_MARKER_SIZE
+	marker.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	marker.focus_mode = Control.FOCUS_NONE
+	var style: StyleBoxFlat = StyleBoxFlat.new()
+	style.bg_color = Color(1.0, 0.88, 0.43, 1.0)
+	style.border_color = Color(0.15, 0.1, 0.12, 0.95)
+	style.set_border_width_all(3)
+	style.set_corner_radius_all(int(FOOD_MARKER_SIZE.x / 2.0))
+	marker.add_theme_stylebox_override("panel", style)
+	return marker
+
+
+func _food_marker_center(marker: Control) -> Vector2:
+	return marker.global_position + marker.size / 2.0
+
+
+func _food_marker_rect(marker: Control) -> Rect2:
+	return Rect2(marker.global_position, marker.size)
+
+
+func _clamp_food_interaction_point(value: Vector2) -> Vector2:
+	return _clamp_to_rect(value, active_water_rect, FOOD_MARKER_SIZE.x / 2.0)
+
+
+func _actor_contacts_food(actor: Node2D, marker: Control) -> bool:
+	var body_rect: Rect2 = actor.call("get_visual_body_rect_global")
+	return body_rect.intersects(_food_marker_rect(marker))
 
 
 func _on_actor_food_eaten(token_id: String, pet_id: String) -> void:
