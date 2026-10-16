@@ -5,8 +5,12 @@ const COIN_BUBBLE_SCENE: PackedScene = preload("res://scenes/ui/coin_bubble_pick
 const JELLYCAT_ACTOR_SCENE: PackedScene = preload("res://scenes/pet/jellycat_actor.tscn")
 const DEFAULT_TOUCH_COOLDOWN_SECONDS: float = 0.5
 const ACTION_DEBOUNCE_SECONDS: float = 0.3
+const WORLD_INPUT_PAIR_DEBOUNCE_MSEC: int = 250
 const LAYOUT_TRANSITION_SECONDS: float = 0.32
 const FOOD_MARKER_SIZE: Vector2 = Vector2(32.0, 32.0)
+const FOOD_SUNK_CLEANUP_MSEC: int = 3000
+const FOOD_EAT_ANIMATION_SECONDS: float = 0.45
+const FOOD_PELLET_TEXTURE: Texture2D = preload("res://assets/food/pellet_32.png")
 
 @onready var coin_label: Label = %CoinLabel
 @onready var stage_label: Label = %StageLabel
@@ -50,12 +54,17 @@ var last_action_time_by_name: Dictionary = {}
 var actors_by_id: Dictionary = {}
 var coin_bubbles_by_id: Dictionary = {}
 var food_drop_visuals: Dictionary = {}
+var food_eating_visuals: Dictionary = {}
+var food_sunk_at_msec: Dictionary = {}
+var full_food_reactions_by_token: Dictionary = {}
 var food_claims: Dictionary = {}
 var roster_buttons_by_id: Dictionary = {}
 var food_rng: RandomNumberGenerator = RandomNumberGenerator.new()
 var last_world_input_at: int = -1000
 var last_world_input_position: Vector2 = Vector2.ZERO
 var last_world_input_kind: int = -1
+var world_input_pair_pending: bool = false
+var rename_keyboard_request_count: int = 0
 var active_water_rect: Rect2 = Rect2()
 var rename_modal_active: bool = false
 var pet_info_button: Button
@@ -64,6 +73,8 @@ var pet_info_open: bool = false
 func _ready() -> void:
 	DOS_STYLE.apply(self)
 	RuntimeLogger.log_info("Aquarium entered")
+	get_tree().quit_on_go_back = false
+	get_window().go_back_requested.connect(_on_android_go_back_requested)
 	GameState.state_changed.connect(_on_state_changed)
 	%FeedButton.pressed.connect(_on_feed_pressed)
 	%CookieButton.pressed.connect(_on_cookie_pressed)
@@ -103,6 +114,10 @@ func _ready() -> void:
 	if _has_sick_active_pet():
 		RuntimeLogger.log_info("JellyCat is sick, bubble coin generation paused")
 		sick_generation_notice_shown = true
+
+
+func _exit_tree() -> void:
+	get_tree().quit_on_go_back = true
 
 
 func _process(delta: float) -> void:
@@ -263,20 +278,7 @@ func _update_pet_info_button() -> void:
 func _on_daily_food_pressed() -> void:
 	if not _accept_action("daily_food"):
 		return
-	var today: String = _today_string()
-	var daily_claim: Dictionary = GameState.get_daily_claim()
-	if str(daily_claim.get("last_free_food_date", "")) == today:
-		RuntimeLogger.log_info_throttled("daily_free_food_already_claimed", "Daily free food already claimed")
-		_show_message("Daily free food already claimed.")
-		return
-	var old_count: int = GameState.get_inventory_count("food_basic")
-	GameState.set_inventory_count("food_basic", old_count + 1)
-	daily_claim["last_free_food_date"] = today
-	GameState.set_daily_claim(daily_claim)
-	RuntimeLogger.log_action("Daily free food claimed")
-	RuntimeLogger.log_state("inventory food_basic changed: %d -> %d" % [old_count, GameState.get_inventory_count("food_basic")])
-	_show_message("Daily free food claimed.")
-	_refresh(false)
+	_show_message("飼料已無限")
 
 
 func _on_log_toggle_pressed() -> void:
@@ -318,12 +320,22 @@ func _on_rename_pressed() -> void:
 	rename_modal_active = true
 	_sync_modal_input_shield()
 	rename_dialog.popup_centered(Vector2i(440, 190))
+	_request_rename_input_focus()
+
+
+func _request_rename_input_focus() -> void:
 	nickname_edit.grab_focus()
+	rename_keyboard_request_count += 1
+	if OS.get_name() == "Android":
+		DisplayServer.virtual_keyboard_show(nickname_edit.text, Rect2i(nickname_edit.get_global_rect()))
 
 
 func _close_rename_dialog() -> void:
+	var was_active: bool = rename_modal_active
 	rename_modal_active = false
 	rename_dialog.hide()
+	if was_active and OS.get_name() == "Android":
+		DisplayServer.virtual_keyboard_hide()
 	_sync_modal_input_shield()
 
 
@@ -440,8 +452,7 @@ func _refresh(log_refresh: bool = false) -> void:
 	health_label.text = "Health: %s" % str(jellycat.get("health", "healthy"))
 	exp_label.text = "Growth EXP: %d" % growth_exp
 	_refresh_touch_exp_label()
-	inventory_label.text = "Food x%d\nCookie x%d\nMedicine x%d" % [
-		GameState.get_inventory_count("food_basic"),
+	inventory_label.text = "Food ∞\nCookie x%d\nMedicine x%d" % [
 		GameState.get_inventory_count("cookie_basic"),
 		GameState.get_inventory_count("medicine_basic")
 	]
@@ -464,11 +475,6 @@ func _refresh(log_refresh: bool = false) -> void:
 		%LogToggleButton.text = "Show Log"
 	if log_refresh:
 		RuntimeLogger.log_info("Aquarium UI refreshed")
-
-
-func _today_string() -> String:
-	var date: Dictionary = Time.get_date_dict_from_system()
-	return "%04d-%02d-%02d" % [int(date.get("year", 0)), int(date.get("month", 0)), int(date.get("day", 0))]
 
 
 func _refresh_touch_exp_label() -> void:
@@ -520,6 +526,7 @@ func _sync_pet_actors() -> void:
 			continue
 		actor.position = _actor_spawn_position(index, active_ids.size())
 		actor.connect("food_eaten", Callable(self, "_on_actor_food_eaten"))
+		actor.connect("food_refused", Callable(self, "_on_actor_food_refused"))
 		actor_anchor.add_child(actor)
 		actor.call("set_water_bounds", local_water_bounds)
 		actors_by_id[pet_id] = actor
@@ -683,9 +690,13 @@ func _has_sick_active_pet() -> bool:
 
 func _drop_basic_food(screen_position: Vector2, target_pet_id: String = "") -> Dictionary:
 	screen_position = _clamp_food_interaction_point(screen_position)
+	FoodDropSystem.expire_due_drops()
+	if GameState.get_food_drops().size() >= GameState.MAX_ACTIVE_FOOD_DROPS:
+		_show_message("Food cap reached (%d)." % GameState.MAX_ACTIVE_FOOD_DROPS)
+		return {}
 	var drop: Dictionary = FoodDropSystem.drop_food(screen_position)
 	if drop.is_empty():
-		_show_message("No basic food available.")
+		_show_message("Food drop unavailable.")
 		return {}
 	var token_id: String = str(drop.get("token_id", ""))
 	if not token_id.is_empty() and GameState.get_active_pet_ids().has(target_pet_id) and not food_claims.values().has(target_pet_id):
@@ -699,11 +710,15 @@ func _update_food_drops(delta: float) -> void:
 	FoodDropSystem.expire_due_drops()
 	var drops: Array[Dictionary] = GameState.get_food_drops()
 	var drops_by_token: Dictionary = {}
+	var sunk_tokens_to_remove: Array[String] = []
+	var now_msec: int = Time.get_ticks_msec()
 	for drop in drops:
 		var token_id: String = str(drop.get("token_id", ""))
+		if token_id.is_empty():
+			continue
 		drops_by_token[token_id] = drop
 		if not food_drop_visuals.has(token_id):
-			var food: Panel = _create_food_marker()
+			var food: TextureRect = _create_food_marker()
 			food_drop_container.add_child(food)
 			var initial_center: Vector2 = _clamp_food_interaction_point(
 				Vector2(float(drop.get("x", 0.0)), float(drop.get("y", 0.0)))
@@ -711,6 +726,11 @@ func _update_food_drops(delta: float) -> void:
 			food.global_position = initial_center - FOOD_MARKER_SIZE / 2.0
 			food_drop_visuals[token_id] = food
 		var visual: Control = food_drop_visuals[token_id] as Control
+		if visual == null:
+			continue
+		if food_eating_visuals.has(token_id):
+			_update_food_eating_visual(token_id, visual, delta)
+			continue
 		var interaction_point: Vector2 = _clamp_food_interaction_point(_food_marker_center(visual))
 		var floor_y: float = active_water_rect.end.y - FOOD_MARKER_SIZE.y / 2.0
 		interaction_point.y = minf(
@@ -718,14 +738,33 @@ func _update_food_drops(delta: float) -> void:
 			interaction_point.y + float(GameApp.get_balance_value("food_sink_speed", 18.0)) * delta
 		)
 		visual.global_position = interaction_point - visual.size / 2.0
+		if interaction_point.y >= floor_y - 0.5:
+			if not food_sunk_at_msec.has(token_id):
+				food_sunk_at_msec[token_id] = now_msec
+			elif now_msec - int(food_sunk_at_msec[token_id]) >= FOOD_SUNK_CLEANUP_MSEC:
+				sunk_tokens_to_remove.append(token_id)
+		else:
+			food_sunk_at_msec.erase(token_id)
 
 	for token_id in food_drop_visuals.keys():
 		if drops_by_token.has(str(token_id)):
 			continue
 		var stale_visual: Node = food_drop_visuals[token_id] as Node
 		food_drop_visuals.erase(token_id)
+		food_eating_visuals.erase(token_id)
+		food_sunk_at_msec.erase(token_id)
 		if is_instance_valid(stale_visual):
 			stale_visual.queue_free()
+
+	for token_id in full_food_reactions_by_token.keys():
+		if drops_by_token.has(str(token_id)):
+			continue
+		var stale_reactions: Dictionary = full_food_reactions_by_token[token_id] as Dictionary
+		for raw_pet_id in stale_reactions.keys():
+			var stale_actor: Node = actors_by_id.get(str(raw_pet_id)) as Node
+			if stale_actor != null:
+				stale_actor.call("clear_full_food_target", str(token_id))
+		full_food_reactions_by_token.erase(token_id)
 
 	for token_id in food_claims.keys():
 		if not drops_by_token.has(str(token_id)):
@@ -733,6 +772,13 @@ func _update_food_drops(delta: float) -> void:
 			var former_actor: Node = actors_by_id.get(former_pet_id) as Node
 			if former_actor != null:
 				former_actor.call("clear_food_target", str(token_id))
+			food_claims.erase(token_id)
+			continue
+		var claimed_pet_id: String = str(food_claims[token_id])
+		if int(GameState.get_pet(claimed_pet_id).get("hunger", 100)) >= 95:
+			var full_actor: Node = actors_by_id.get(claimed_pet_id) as Node
+			if full_actor != null:
+				full_actor.call("clear_food_target", str(token_id))
 			food_claims.erase(token_id)
 
 	var occupied_pet_ids: Dictionary = {}
@@ -762,6 +808,43 @@ func _update_food_drops(delta: float) -> void:
 		actor.call("set_food_target", str(token_id), target_position)
 		if _actor_contacts_food(actor, visual):
 			actor.call("begin_eating", str(token_id))
+			_begin_food_eating_visual(str(token_id), actor, visual)
+
+	var reacting_pet_ids: Dictionary = {}
+	for drop in drops:
+		var token_id: String = str(drop.get("token_id", ""))
+		var visual: Control = food_drop_visuals.get(token_id) as Control
+		if token_id.is_empty() or visual == null:
+			continue
+		var reactions: Dictionary = full_food_reactions_by_token.get(token_id, {}) as Dictionary
+		var target_position: Vector2 = actor_anchor.to_local(_food_marker_center(visual))
+		for pet_id in GameState.get_active_pet_ids():
+			if reacting_pet_ids.has(pet_id) or occupied_pet_ids.has(pet_id):
+				continue
+			if reactions.has(pet_id):
+				var existing_actor: Node2D = actors_by_id.get(pet_id) as Node2D
+				if existing_actor != null and str(existing_actor.get("full_food_drop_id")) == token_id:
+					var existing_state: String = str(existing_actor.get("behavior_state"))
+					if existing_state == "approach_full_food":
+						existing_actor.call("set_full_food_target", token_id, target_position)
+						reacting_pet_ids[pet_id] = true
+					elif existing_state == "full_food_refusal":
+						reacting_pet_ids[pet_id] = true
+				continue
+			if int(GameState.get_pet(pet_id).get("hunger", 100)) < 95:
+				continue
+			var actor: Node2D = actors_by_id.get(pet_id) as Node2D
+			if actor == null or not bool(actor.call("can_react_to_full_food")):
+				continue
+			if actor.call("set_full_food_target", token_id, target_position):
+				reactions[pet_id] = true
+				reacting_pet_ids[pet_id] = true
+		full_food_reactions_by_token[token_id] = reactions
+
+	for token_id in sunk_tokens_to_remove:
+		if GameState.resolve_food_drop(token_id):
+			SaveManager.save_game()
+			_remove_food_token_visual(token_id)
 
 
 func _choose_food_pet(occupied_pet_ids: Dictionary, food_position: Vector2) -> String:
@@ -784,18 +867,14 @@ func _choose_food_pet(occupied_pet_ids: Dictionary, food_position: Vector2) -> S
 	return closest_pet_id
 
 
-func _create_food_marker() -> Panel:
-	var marker: Panel = Panel.new()
+func _create_food_marker() -> TextureRect:
+	var marker: TextureRect = TextureRect.new()
 	marker.name = "FoodMarker"
 	marker.size = FOOD_MARKER_SIZE
 	marker.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	marker.focus_mode = Control.FOCUS_NONE
-	var style: StyleBoxFlat = StyleBoxFlat.new()
-	style.bg_color = Color(1.0, 0.88, 0.43, 1.0)
-	style.border_color = Color(0.15, 0.1, 0.12, 0.95)
-	style.set_border_width_all(3)
-	style.set_corner_radius_all(int(FOOD_MARKER_SIZE.x / 2.0))
-	marker.add_theme_stylebox_override("panel", style)
+	marker.texture = FOOD_PELLET_TEXTURE
+	marker.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	return marker
 
 
@@ -818,19 +897,111 @@ func _actor_contacts_food(actor: Node2D, marker: Control) -> bool:
 
 func _on_actor_food_eaten(token_id: String, pet_id: String) -> void:
 	var actor: Node = actors_by_id.get(pet_id) as Node
+	var old_hunger: int = int(GameState.get_pet(pet_id).get("hunger", 0))
 	var success: bool = FoodDropSystem.consume_food(token_id, pet_id)
 	food_claims.erase(token_id)
 	var visual: Node = food_drop_visuals.get(token_id) as Node
 	food_drop_visuals.erase(token_id)
+	food_eating_visuals.erase(token_id)
+	food_sunk_at_msec.erase(token_id)
 	if is_instance_valid(visual):
 		visual.queue_free()
+	var reactions: Dictionary = full_food_reactions_by_token.get(token_id, {}) as Dictionary
+	for raw_pet_id in reactions.keys():
+		var reacting_actor: Node = actors_by_id.get(str(raw_pet_id)) as Node
+		if reacting_actor != null:
+			reacting_actor.call("clear_full_food_target", token_id)
+	full_food_reactions_by_token.erase(token_id)
 	if actor == null:
 		return
 	if success:
 		actor.call("complete_meal", token_id)
-		_show_message("%s ate." % str(GameState.get_pet(pet_id).get("nickname", "JellyCat")))
+		var new_hunger: int = int(GameState.get_pet(pet_id).get("hunger", old_hunger))
+		var satiation_gained: int = maxi(0, new_hunger - old_hunger)
+		_show_message("%s ate. +%d satiety." % [str(GameState.get_pet(pet_id).get("nickname", "JellyCat")), satiation_gained])
 	else:
 		actor.call("clear_food_target", token_id)
+
+
+func _begin_food_eating_visual(token_id: String, actor: Node2D, visual: Control) -> void:
+	if food_eating_visuals.has(token_id):
+		return
+	food_eating_visuals[token_id] = {
+		"elapsed": 0.0,
+		"start_center": _food_marker_center(visual),
+		"pet_id": str(actor.get("pet_id")),
+	}
+
+
+func _update_food_eating_visual(token_id: String, visual: Control, delta: float) -> void:
+	var animation: Dictionary = food_eating_visuals.get(token_id, {}) as Dictionary
+	var actor: Node2D = actors_by_id.get(str(animation.get("pet_id", ""))) as Node2D
+	if actor == null or animation.is_empty():
+		food_eating_visuals.erase(token_id)
+		visual.size = FOOD_MARKER_SIZE
+		visual.visible = true
+		return
+	var elapsed: float = minf(FOOD_EAT_ANIMATION_SECONDS, float(animation.get("elapsed", 0.0)) + maxf(delta, 0.0))
+	animation["elapsed"] = elapsed
+	food_eating_visuals[token_id] = animation
+	var progress: float = clampf(elapsed / FOOD_EAT_ANIMATION_SECONDS, 0.0, 1.0)
+	var eased_progress: float = progress * progress * (3.0 - 2.0 * progress)
+	var start_center: Vector2 = animation.get("start_center", _food_marker_center(visual)) as Vector2
+	var mouth_offset: float = maxf(float(actor.call("get_visual_body_size").y) * 0.15, 10.0)
+	var mouth_position: Vector2 = actor.global_position - Vector2(0.0, mouth_offset)
+	var center: Vector2 = start_center.lerp(mouth_position, eased_progress)
+	visual.size = FOOD_MARKER_SIZE * (1.0 - eased_progress)
+	visual.global_position = center - visual.size / 2.0
+	if progress >= 1.0:
+		visual.visible = false
+
+
+func _on_actor_food_refused(token_id: String, pet_id: String) -> void:
+	if not full_food_reactions_by_token.get(token_id, {}).has(pet_id):
+		return
+	if int(GameState.get_pet(pet_id).get("hunger", 100)) < 95:
+		return
+	var actor: Node2D = actors_by_id.get(pet_id) as Node2D
+	if actor == null:
+		return
+	var bubble: Label = Label.new()
+	bubble.name = "FullFoodRefusalBubble"
+	bubble.text = "吃飽了"
+	bubble.size = Vector2(128.0, 38.0)
+	bubble.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	bubble.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	bubble.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	bubble.add_theme_font_size_override("font_size", 20)
+	bubble.add_theme_color_override("font_color", Color("fff6b0"))
+	bubble.add_theme_color_override("font_outline_color", Color("1c1838"))
+	bubble.add_theme_constant_override("outline_size", 3)
+	food_drop_container.add_child(bubble)
+	bubble.global_position = actor.global_position - Vector2(bubble.size.x / 2.0, 62.0)
+	var tween: Tween = bubble.create_tween()
+	tween.set_parallel(true)
+	tween.tween_property(bubble, "global_position:y", bubble.global_position.y - 18.0, 1.1)
+	tween.tween_property(bubble, "modulate:a", 0.0, 0.8).set_delay(0.3)
+	tween.tween_callback(bubble.queue_free).set_delay(1.1)
+
+
+func _remove_food_token_visual(token_id: String) -> void:
+	var claimed_pet_id: String = str(food_claims.get(token_id, ""))
+	var claimed_actor: Node = actors_by_id.get(claimed_pet_id) as Node
+	if claimed_actor != null:
+		claimed_actor.call("clear_food_target", token_id)
+	food_claims.erase(token_id)
+	var reactions: Dictionary = full_food_reactions_by_token.get(token_id, {}) as Dictionary
+	for raw_pet_id in reactions.keys():
+		var reacting_actor: Node = actors_by_id.get(str(raw_pet_id)) as Node
+		if reacting_actor != null:
+			reacting_actor.call("clear_full_food_target", token_id)
+	full_food_reactions_by_token.erase(token_id)
+	food_eating_visuals.erase(token_id)
+	food_sunk_at_msec.erase(token_id)
+	var visual: Node = food_drop_visuals.get(token_id) as Node
+	food_drop_visuals.erase(token_id)
+	if is_instance_valid(visual):
+		visual.queue_free()
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -854,11 +1025,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	if not _get_safe_viewport_rect(get_viewport_rect().size).has_point(screen_position) or not active_water_rect.has_point(screen_position):
 		return
 	var now: int = Time.get_ticks_msec()
-	if input_kind != last_world_input_kind and now - last_world_input_at < 120 and screen_position.distance_to(last_world_input_position) < 2.0:
+	if world_input_pair_pending and input_kind != last_world_input_kind and now - last_world_input_at < WORLD_INPUT_PAIR_DEBOUNCE_MSEC and screen_position.distance_to(last_world_input_position) < 2.0:
+		world_input_pair_pending = false
 		return
-	last_world_input_at = now
-	last_world_input_position = screen_position
-	last_world_input_kind = input_kind
 	var touch_target: float = DOS_STYLE.get_touch_target_height(get_viewport_rect().size)
 	var selected_actor: Node2D = null
 	var closest_distance: float = INF
@@ -874,8 +1043,49 @@ func _unhandled_input(event: InputEvent) -> void:
 		GameState.set_selected_pet_id(str(selected_actor.get("pet_id")))
 		_set_pet_info_open(true)
 		selected_actor.call("react_to_touch")
+		_record_world_input(screen_position, input_kind)
 		return
 	_drop_basic_food(screen_position)
+	_record_world_input(screen_position, input_kind)
+
+
+func _record_world_input(screen_position: Vector2, input_kind: int) -> void:
+	last_world_input_at = Time.get_ticks_msec()
+	last_world_input_position = screen_position
+	last_world_input_kind = input_kind
+	world_input_pair_pending = true
+
+
+func _unhandled_key_input(event: InputEvent) -> void:
+	if not event is InputEventKey:
+		return
+	var key_event: InputEventKey = event as InputEventKey
+	if not key_event.pressed or key_event.echo:
+		return
+	if key_event.keycode != KEY_ESCAPE and not key_event.is_action_pressed("ui_cancel"):
+		return
+	if not _close_topmost_panel():
+		return
+	get_viewport().set_input_as_handled()
+
+
+func _on_android_go_back_requested() -> void:
+	if not _close_topmost_panel():
+		get_tree().quit()
+
+
+func _close_topmost_panel() -> bool:
+	if rename_modal_active:
+		_close_rename_dialog()
+	elif shop_panel.visible:
+		_set_shop_open(false)
+	elif runtime_log_panel.visible:
+		runtime_log_panel.visible = false
+		_apply_responsive_layout()
+		_refresh(false)
+	else:
+		return false
+	return true
 
 
 func _clamp_to_rect(value: Vector2, rect: Rect2, margin: float) -> Vector2:

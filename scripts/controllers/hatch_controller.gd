@@ -6,6 +6,8 @@ const DOS_STYLE = preload("res://scripts/ui/dos_style.gd")
 @onready var progress_label: Label = %ProgressLabel
 @onready var hint_label: Label = %HintLabel
 
+var route_timer: Timer
+
 func _ready() -> void:
 	DOS_STYLE.apply(self)
 	RuntimeLogger.log_info("Hatch entered")
@@ -31,9 +33,16 @@ func _on_egg_pressed() -> void:
 	if bool(egg.get("is_hatched", false)):
 		RuntimeLogger.log_info("Egg hatched")
 		hint_label.text = "A new JellyCat joined the aquarium!"
-		await get_tree().create_timer(0.45).timeout
-		if not is_inside_tree():
-			return
+		route_timer = Timer.new()
+		route_timer.one_shot = true
+		route_timer.wait_time = 0.45
+		route_timer.timeout.connect(_route_to_aquarium)
+		add_child(route_timer)
+		route_timer.start()
+
+
+func _route_to_aquarium() -> void:
+	if is_inside_tree():
 		SceneRouter.go_aquarium()
 
 

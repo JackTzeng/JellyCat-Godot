@@ -158,15 +158,12 @@ static func _consume_food_for_pet(pet_id: String, item_id: String, consume_item:
 	var next_pet: Dictionary = build_fed_pet_data(pet_id, item_id)
 	if next_pet.is_empty():
 		return false
-	if consume_item:
-		var old_count: int = GameState.get_inventory_count(item_id)
-		if old_count <= 0:
-			RuntimeLogger.log_info("No item available: %s" % item_id)
-			return false
-		GameState.set_inventory_count(item_id, old_count - 1)
+	var consumes_inventory: bool = consume_item and item_id != "food_basic"
+	if consumes_inventory and not InventorySystem.spend_item(item_id, 1):
+		return false
 	if not GameState.set_pet(pet_id, next_pet):
-		if consume_item:
-			GameState.set_inventory_count(item_id, GameState.get_inventory_count(item_id) + 1)
+		if consumes_inventory:
+			InventorySystem.add_item(item_id, 1)
 		return false
 	_log_int_change("hunger", int(old_pet.get("hunger", 0)), int(next_pet.get("hunger", 0)))
 	_log_int_change("mood", int(old_pet.get("mood", 0)), int(next_pet.get("mood", 0)))

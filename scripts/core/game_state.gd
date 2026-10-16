@@ -6,6 +6,7 @@ const SAVE_VERSION: String = "0.2.0"
 const SCHEMA_VERSION: int = 2
 const STARTER_CAPACITY: int = 3
 const MAX_PET_CAPACITY: int = 12
+const MAX_ACTIVE_FOOD_DROPS: int = 3
 const STARTER_PERSONALITIES: Array[String] = ["curious", "affectionate", "sleepy"]
 
 var data: Dictionary = {}
@@ -407,10 +408,12 @@ func get_food_drops() -> Array[Dictionary]:
 
 
 func reserve_food_drop(item_id: String, position: Vector2, expires_at: float) -> Dictionary:
-	if item_id != "food_basic" or GameState.get_inventory_count(item_id) <= 0:
+	if item_id != "food_basic":
 		return {}
 	var aquarium: Dictionary = data["aquarium"] as Dictionary
 	var drops: Array = aquarium.get("food_drops", []) as Array
+	if drops.size() >= MAX_ACTIVE_FOOD_DROPS:
+		return {}
 	var token_number: int = max(int(aquarium.get("food_token_counter", 0)), 0) + 1
 	var token_id: String = "food_%08d" % token_number
 	while _has_food_token(drops, token_id):
@@ -425,8 +428,6 @@ func reserve_food_drop(item_id: String, position: Vector2, expires_at: float) ->
 		"expires_at": maxf(expires_at, Time.get_unix_time_from_system() + 1.0)
 	})
 	aquarium["food_drops"] = drops
-	var inventory: Dictionary = data["inventory"] as Dictionary
-	inventory[item_id] = max(0, int(inventory.get(item_id, 0)) - 1)
 	mark_changed()
 	return drops[-1].duplicate(true)
 
@@ -435,19 +436,13 @@ func resolve_food_drop(token_id: String, pet_id: String = "", pet_data: Dictiona
 	var aquarium: Dictionary = data["aquarium"] as Dictionary
 	var drops: Array = aquarium.get("food_drops", []) as Array
 	var drop_index: int = -1
-	var drop: Dictionary = {}
 	for index in range(drops.size()):
 		if drops[index] is Dictionary and str((drops[index] as Dictionary).get("token_id", "")) == token_id:
 			drop_index = index
-			drop = (drops[index] as Dictionary).duplicate(true)
 			break
 	if drop_index < 0:
 		return false
-	if pet_data.is_empty():
-		var item_id: String = str(drop.get("item_id", ""))
-		var inventory: Dictionary = data["inventory"] as Dictionary
-		inventory[item_id] = int(inventory.get(item_id, 0)) + 1
-	else:
+	if not pet_data.is_empty():
 		var pets: Dictionary = data["pets"] as Dictionary
 		if pet_id.is_empty() or not pets.has(pet_id) or not get_active_pet_ids().has(pet_id) or str(pet_data.get("pet_id", "")) != pet_id:
 			return false

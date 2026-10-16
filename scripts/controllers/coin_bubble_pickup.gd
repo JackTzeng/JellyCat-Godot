@@ -2,6 +2,10 @@ extends Button
 
 const DOS_STYLE = preload("res://scripts/ui/dos_style.gd")
 
+@onready var idle_art: TextureRect = %IdleArt
+@onready var hint_art: TextureRect = %HintArt
+@onready var pickup_fx_art: TextureRect = %PickupFxArt
+
 signal collected(token_id: String, value: int, auto_collected: bool, source_pet_id: String)
 
 var token_id: String = ""
@@ -24,8 +28,12 @@ func configure(drop: Dictionary) -> void:
 
 func _ready() -> void:
 	DOS_STYLE.style_button(self)
-	text = "+%d" % value
+	text = ""
 	pressed.connect(_on_pressed)
+	button_down.connect(_show_hint_art)
+	button_up.connect(_show_idle_art)
+	mouse_entered.connect(_show_hint_art)
+	mouse_exited.connect(_show_idle_art)
 
 
 func _process(delta: float) -> void:
@@ -42,6 +50,9 @@ func collect(auto_collected: bool = false) -> void:
 		return
 	already_collected = true
 	disabled = true
+	pickup_fx_art.visible = true
+	idle_art.visible = false
+	hint_art.visible = false
 	collected.emit(token_id, value, auto_collected, source_pet_id)
 
 
@@ -50,8 +61,7 @@ func animate_to_wallet(target_global_position: Vector2) -> void:
 	tween.set_parallel(true)
 	tween.tween_property(self, "global_position", target_global_position, 0.38)
 	tween.tween_property(self, "modulate:a", 0.0, 0.38)
-	await tween.finished
-	queue_free()
+	tween.tween_callback(queue_free).set_delay(0.38)
 
 
 func discard() -> void:
@@ -60,3 +70,17 @@ func discard() -> void:
 
 func _on_pressed() -> void:
 	collect(false)
+
+
+func _show_hint_art() -> void:
+	if already_collected:
+		return
+	idle_art.visible = false
+	hint_art.visible = true
+
+
+func _show_idle_art() -> void:
+	if already_collected:
+		return
+	idle_art.visible = true
+	hint_art.visible = false

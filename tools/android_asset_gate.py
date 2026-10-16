@@ -20,8 +20,8 @@ STAGE_PNGS = (
 )
 NATIVE_TANK = (
     "scripts/ui/native_tank.gd",
-    1470,
-    "a401dea8db5b9cf4af22322443247524cf7257330b61d355631f81c4bb18622d",
+    2004,
+    "6b3b4fd4dc5b9d42235009e6c5274de3b87f60e3245a125adf741a610899385e",
 )
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 GLOBAL_CLASSES = ("CareSystem", "CurrencySystem", "EggSystem", "HatchSystem", "EvolutionSystem")

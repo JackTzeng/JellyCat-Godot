@@ -1,6 +1,11 @@
 extends Control
 ## Visual backdrop only. Does not own water bounds, actors, input, or facilities.
 
+const BACKGROUND_TEXTURE: Texture2D = preload("res://assets/background/tank_16x9.png")
+const CENTER_TILE_TEXTURE: Texture2D = preload("res://assets/background/tank_center_tile_32x180.png")
+
+const BACKGROUND_SIZE: Vector2 = Vector2(640.0, 360.0)
+
 @export_range(1, 16, 1) var visual_unit: int = 2:
 	set(value):
 		visual_unit = clampi(value, 1, 16)
@@ -8,23 +13,27 @@ extends Control
 
 func _init() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	clip_contents = true
+	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	resized.connect(queue_redraw)
 
 func _draw() -> void:
-	var u := float(visual_unit)
-	draw_rect(Rect2(Vector2.ZERO, size), Color("14182E"))
-	if size.x < 16*u or size.y < 16*u:
+	if size.x <= 0.0 or size.y <= 0.0:
 		return
-	var water := Rect2(Vector2(u, u), (size/u).floor()*u-Vector2.ONE*2*u)
-	draw_rect(water, Color("345C79"))
-	var band_height := floorf(water.size.y / (4*u))*u
-	draw_rect(Rect2(water.position, Vector2(water.size.x, band_height)), Color("4A8191"))
-	var sand_y := water.end.y-4*u
-	draw_rect(Rect2(Vector2(water.position.x, sand_y), Vector2(water.size.x, 4*u)), Color("526078"))
-	for x in range(1, int(water.end.x/u)-3, 4):
-		var rise := u if (x/4) % 2 == 0 else 2*u
-		draw_rect(Rect2(Vector2(x*u, sand_y-rise), Vector2(3*u, rise)), Color("8590A2"))
-		draw_rect(Rect2(Vector2(x*u, sand_y), Vector2(u, u)), Color("79B3B0"))
+	var integer_scale: int = maxi(1, roundi(size.y / BACKGROUND_SIZE.y))
+	var logical_size: Vector2 = size / float(integer_scale)
+	var background_origin: Vector2 = Vector2(
+		(logical_size.x - BACKGROUND_SIZE.x) * 0.5,
+		(logical_size.y - BACKGROUND_SIZE.y) * 0.5
+	)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE * float(integer_scale))
+	if background_origin.x > 0.0:
+		var left_extension: Rect2 = Rect2(Vector2(0.0, background_origin.y), Vector2(background_origin.x, BACKGROUND_SIZE.y))
+		var right_extension: Rect2 = Rect2(Vector2(background_origin.x + BACKGROUND_SIZE.x, background_origin.y), Vector2(background_origin.x, BACKGROUND_SIZE.y))
+		draw_texture_rect(CENTER_TILE_TEXTURE, left_extension, true)
+		draw_texture_rect(CENTER_TILE_TEXTURE, right_extension, true)
+	draw_texture_rect(BACKGROUND_TEXTURE, Rect2(background_origin, BACKGROUND_SIZE), false)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 static func make_panel(visual_unit: int = 1) -> StyleBoxFlat:
 	assert(visual_unit >= 1)

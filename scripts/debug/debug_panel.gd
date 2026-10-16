@@ -78,7 +78,7 @@ func refresh() -> void:
 		"health: %s" % health,
 		"growth_exp: %s" % growth_exp,
 		"bubble_coin: %d" % GameState.get_currency("bubble_coin"),
-		"food_basic: %d" % GameState.get_inventory_count("food_basic"),
+		"food_basic: ∞",
 		"cookie_basic: %d" % GameState.get_inventory_count("cookie_basic"),
 		"save path: %s" % SaveManager.get_save_path(),
 		"last_saved_at: %s" % GameState.get_timestamp("last_saved_at")

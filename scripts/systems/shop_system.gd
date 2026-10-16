@@ -3,6 +3,8 @@ extends Node
 class_name ShopSystem
 
 static func can_buy(item_id: String, quantity: int = 1) -> bool:
+	if item_id == "food_basic":
+		return false
 	var total_price: int = get_total_price(item_id, quantity)
 	if total_price < 0:
 		return false
@@ -10,6 +12,9 @@ static func can_buy(item_id: String, quantity: int = 1) -> bool:
 
 
 static func buy_item(item_id: String, quantity: int = 1) -> bool:
+	if item_id == "food_basic":
+		RuntimeLogger.log_info("Basic food is unlimited")
+		return false
 	var safe_quantity: int = max(quantity, 1)
 	var item: Dictionary = _get_item(item_id)
 	if item.is_empty():

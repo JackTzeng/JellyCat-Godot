@@ -15,6 +15,8 @@ func _ready() -> void:
 func refresh() -> void:
 	coin_label.text = "Bubble Coin: %d" % GameState.get_currency("bubble_coin")
 	%FoodInfoLabel.text = _item_line("food_basic")
+	%BuyFoodButton.disabled = true
+	%BuyFoodButton.text = "Unlimited"
 	%CookieInfoLabel.text = _item_line("cookie_basic")
 	%MedicineInfoLabel.text = _item_line("medicine_basic")
 
@@ -44,6 +46,10 @@ func _buy(item_id: String) -> void:
 
 
 func _item_line(item_id: String) -> String:
+	if item_id == "food_basic":
+		var food_item: Variant = GameApp.get_table("items").get(item_id, {})
+		var food: Dictionary = food_item as Dictionary if food_item is Dictionary else {}
+		return "%s | ∞ | 飼料無限" % str(food.get("display_name", item_id))
 	var item_value: Variant = GameApp.get_table("items").get(item_id, {})
 	var item: Dictionary = {}
 	if item_value is Dictionary:

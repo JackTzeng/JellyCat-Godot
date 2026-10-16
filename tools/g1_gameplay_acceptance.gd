@@ -86,6 +86,7 @@ func _run() -> void:
 		if first_stage_actor != null:
 			stage_sprite = first_stage_actor.get_node("%Sprite") as Sprite2D
 	_expect(water_background.get_script() == native_tank_script and water_background.mouse_filter == Control.MOUSE_FILTER_IGNORE, "Native DOS tank replaces the soft background and ignores input")
+	_expect(water_background.texture_filter == CanvasItem.TEXTURE_FILTER_NEAREST, "Approved integer-scaled ART-DOS-07 aquarium background uses nearest sampling")
 	_expect(stage_sprite != null and stage_sprite.texture_filter == CanvasItem.TEXTURE_FILTER_NEAREST, "Official 64-pixel stage art uses nearest-neighbor sampling")
 	_expect(overlay_layer.get_index() > action_layer.get_index() and overlay_layer.mouse_filter == Control.MOUSE_FILTER_IGNORE and modal_input_shield.mouse_filter == Control.MOUSE_FILTER_STOP and overlay_layer.get_index() + 1 == aquarium.get_child_count() and aquarium.get_node("%ShopPanel").get_parent() == overlay_layer and aquarium.get_node("%ShopPanel").get_index() > modal_input_shield.get_index(), "Modal shield and Shop sit above the HUD in input-safe order")
 	_expect(not (aquarium.get_node("%RuntimeLogPanel") as Control).visible and (aquarium.get_node("%LogToggleButton") as Button).visible == OS.is_debug_build(), "Runtime log starts hidden and is explicitly available only in debug builds")
@@ -94,8 +95,37 @@ func _run() -> void:
 	var inventory_label: Label = aquarium.get_node("%InventoryLabel") as Label
 	var pet_details_collapsed: bool = not bool(aquarium.get("pet_info_open")) and pet_info_button != null and pet_info_button.text == "Pet Info"
 	pet_details_collapsed = pet_details_collapsed and status_backdrop.visible and coin_label.visible and coin_label.text.begins_with("Coin:")
-	pet_details_collapsed = pet_details_collapsed and not (aquarium.get_node("%StageLabel") as Control).visible and inventory_label.visible and inventory_label.text.contains("Food x")
+	pet_details_collapsed = pet_details_collapsed and not (aquarium.get_node("%StageLabel") as Control).visible and inventory_label.visible and inventory_label.text.contains("Food ∞")
 	_expect(pet_details_collapsed, "Aquarium starts with compact coin and inventory status while individual details stay closed")
+	var food_count_before_daily: int = GameState.get_inventory_count("food_basic")
+	var currency_before_daily: int = GameState.get_currency("bubble_coin")
+	var daily_claim: Dictionary = GameState.get_daily_claim()
+	daily_claim["last_free_food_date"] = "legacy-marker"
+	GameState.set_daily_claim(daily_claim)
+	var daily_claim_before: Dictionary = GameState.get_daily_claim().duplicate(true)
+	(aquarium.get_node("%DailyFoodButton") as Button).pressed.emit()
+	_expect(GameState.get_inventory_count("food_basic") == food_count_before_daily, "Unlimited daily-food prompt leaves the legacy quantity unchanged")
+	_expect(GameState.get_daily_claim() == daily_claim_before, "Unlimited daily-food prompt does not write a daily claim")
+	_expect(GameState.get_currency("bubble_coin") == currency_before_daily, "Unlimited daily-food prompt does not change currency")
+	_expect(str((aquarium.get_node("%MessageLabel") as Label).text) == "飼料已無限", "Daily-food prompt shows the approved unlimited-food message")
+	var unlimited_shop_panel: Control = aquarium.get_node("%ShopPanel") as Control
+	unlimited_shop_panel.call("refresh")
+	var food_info_label: Label = unlimited_shop_panel.get_node("%FoodInfoLabel") as Label
+	var buy_food_button: Button = unlimited_shop_panel.get_node("%BuyFoodButton") as Button
+	_expect(food_info_label.text.contains("∞") and food_info_label.text.contains("飼料無限") and buy_food_button.disabled, "Shop marks food unlimited and disables its purchase button")
+	_expect(not ShopSystem.can_buy("food_basic") and not ShopSystem.buy_item("food_basic"), "Shop transaction cannot buy unlimited food")
+	_expect(GameState.get_currency("bubble_coin") == currency_before_daily and GameState.get_inventory_count("food_basic") == food_count_before_daily, "Rejected shop purchase changes neither currency nor legacy quantity")
+	var cookie_pet_id: String = GameState.get_active_pet_ids()[0]
+	var cookie_pet_before: Dictionary = GameState.get_pet(cookie_pet_id)
+	var cookie_count_before: int = GameState.get_inventory_count("cookie_basic")
+	var cookie_feed_ok: bool = CareSystem.feed_cookie(cookie_pet_id)
+	_expect(cookie_feed_ok and GameState.get_inventory_count("cookie_basic") == cookie_count_before - 1, "Cookie feeding still spends one stocked inventory item")
+	InventorySystem.add_item("cookie_basic", 1)
+	_expect(GameState.get_inventory_count("cookie_basic") == cookie_count_before, "Cookie inventory can be restored through the unchanged add/refund path")
+	GameState.set_pet(cookie_pet_id, cookie_pet_before)
+	var cookie_actor: Node2D = actors.get(cookie_pet_id) as Node2D
+	if cookie_actor != null:
+		cookie_actor.call("refresh_pet")
 	var world_is_below_hud: bool = aquarium.get_node("%Water").get_index() < actor_anchor.get_index()
 	world_is_below_hud = world_is_below_hud and actor_anchor.get_index() < food_container.get_index() and food_container.get_index() < coin_container.get_index()
 	world_is_below_hud = world_is_below_hud and coin_container.get_index() < status_backdrop.get_index() and coin_container.get_index() < action_layer.get_index()
@@ -169,6 +199,9 @@ func _run() -> void:
 	visual_probe.set("food_drop_id", "visual-scale-probe")
 	visual_probe.set("behavior_state", "eat")
 	visual_probe.call("_process", 0.1)
+	var eating_has_squash_stretch: bool = probe_sprite.scale.x >= probe_base_scale * 0.7 and probe_sprite.scale.x <= probe_base_scale * 1.2
+	_expect(eating_has_squash_stretch, "Eat pulse visibly squashes and stretches within safe bounds")
+	visual_probe.call("_process", 0.35)
 	var eating_keeps_base: bool = probe_sprite.scale.x >= probe_base_scale * 0.95 and probe_sprite.scale.x <= probe_base_scale * 1.05
 	visual_probe.call("clear_food_target", "visual-scale-probe")
 	var cancel_keeps_base: bool = is_equal_approx(probe_sprite.scale.x, probe_base_scale)
@@ -208,8 +241,12 @@ func _run() -> void:
 	var rename_button: Button = aquarium.get_node("%RenameButton") as Button
 	var rename_dialog: ConfirmationDialog = aquarium.get_node("%RenameDialog") as ConfirmationDialog
 	_expect(rename_dialog.confirmed.is_connected(Callable(aquarium, "_on_rename_confirmed")), "Rename dialog is connected to the selected pet")
+	var keyboard_requests_before: int = int(aquarium.get("rename_keyboard_request_count"))
 	rename_button.pressed.emit()
+	await get_tree().process_frame
 	var rename_shield_active: bool = modal_input_shield.visible
+	var rename_focus_and_keyboard_request: bool = nickname_edit.has_focus() and int(aquarium.get("rename_keyboard_request_count")) == keyboard_requests_before + 1
+	_expect(rename_focus_and_keyboard_request, "Rename opens focused with the virtual-keyboard request path exercised")
 	var food_before_rename_touch: int = GameState.get_food_drops().size()
 	var rename_touch: InputEventScreenTouch = InputEventScreenTouch.new()
 	var rename_water_rect: Rect2 = aquarium.get("active_water_rect")
@@ -217,10 +254,26 @@ func _run() -> void:
 	rename_touch.position = rename_water_rect.get_center()
 	aquarium.call("_unhandled_input", rename_touch)
 	var rename_blocks_world: bool = GameState.get_food_drops().size() == food_before_rename_touch
+	var selected_before_back: String = GameState.get_selected_pet_id()
+	var rename_back: InputEventKey = InputEventKey.new()
+	rename_back.pressed = true
+	rename_back.keycode = KEY_ESCAPE
+	aquarium.call("_unhandled_key_input", rename_back)
+	_expect(not bool(aquarium.get("rename_modal_active")) and not modal_input_shield.visible and GameState.get_food_drops().size() == food_before_rename_touch and GameState.get_selected_pet_id() == selected_before_back, "Back closes Rename first without leaking a water action or changing pet selection")
+	keyboard_requests_before = int(aquarium.get("rename_keyboard_request_count"))
+	rename_button.pressed.emit()
+	await get_tree().process_frame
+	_expect(nickname_edit.has_focus() and int(aquarium.get("rename_keyboard_request_count")) == keyboard_requests_before + 1, "Reopening Rename restores focus for Android text entry")
 	nickname_edit.text = "Mochi"
 	rename_dialog.confirmed.emit()
 	_expect(rename_shield_active and rename_blocks_world and not modal_input_shield.visible, "Rename modal shields world input and releases it when closed")
 	_expect(str(GameState.get_pet(selected_id).get("nickname", "")) == "Mochi", "Rename dialog persists the selected pet nickname")
+	var renamed_nickname: String = str(GameState.get_pet(selected_id).get("nickname", ""))
+	rename_button.pressed.emit()
+	await get_tree().process_frame
+	nickname_edit.text = "CancelMustNotPersist"
+	rename_dialog.canceled.emit()
+	_expect(not bool(aquarium.get("rename_modal_active")) and str(GameState.get_pet(selected_id).get("nickname", "")) == renamed_nickname, "Cancel closes Rename without changing the selected pet")
 	_expect(str((aquarium.get_node("%EvolutionLabel") as Label).text).contains("EXP left"), "Selected pet UI shows EXP remaining to the next stage")
 	var roster_buttons: Dictionary = aquarium.get("roster_buttons_by_id") as Dictionary
 	var second_id: String = GameState.get_active_pet_ids()[1]
@@ -237,6 +290,7 @@ func _run() -> void:
 	await get_tree().create_timer(0.4).timeout
 	print("G1 acceptance: after roster/rename paused=%s eggs=%d" % [str(get_tree().paused), GameState.get_nursery_eggs().size()])
 	await _run_food_geometry_regression(aquarium, actor_anchor, actors)
+	var food_quantity_before_world_feeds: int = GameState.get_inventory_count("food_basic")
 	var hunger_before_by_pet: Dictionary = {}
 	for pet_id in GameState.get_active_pet_ids():
 		var actor: Node = actors.get(pet_id) as Node
@@ -266,13 +320,18 @@ func _run() -> void:
 		aquarium.call("_on_feed_pressed")
 		_expect(int(GameState.get_pet(pet_id).get("hunger", 0)) == old_hunger, "Dropped food waits for an actor to eat")
 		_expect(GameState.get_food_drops().size() == GameState.get_active_pet_ids().find(pet_id) + 1, "Feed button creates one persisted food token")
-		_expect(GameState.get_inventory_count("food_basic") == old_inventory - 1, "One actor feed spends exactly one token")
+		_expect(GameState.get_inventory_count("food_basic") == old_inventory, "One unlimited-food drop leaves the legacy quantity unchanged")
+	var fourth_drop: Dictionary = aquarium.call("_drop_basic_food", (aquarium.get("active_water_rect") as Rect2).get_center())
+	_expect(fourth_drop.is_empty() and GameState.get_food_drops().size() == 3, "Fourth live food token is rejected at the three-token cap")
+	_expect(str((aquarium.get_node("%MessageLabel") as Label).text).contains("3"), "Food-cap rejection gives clear feedback")
+	_expect(GameState.get_inventory_count("food_basic") == food_quantity_before_world_feeds, "Three drops and cap rejection preserve the legacy quantity")
 	print("G1 acceptance: all drops placed=%d paused=%s" % [GameState.get_food_drops().size(), str(get_tree().paused)])
 	var wait_time: float = 0.0
 	while not GameState.get_food_drops().is_empty() and wait_time < 25.0:
 		await get_tree().create_timer(0.1).timeout
 		wait_time += 0.1
 	_expect(GameState.get_food_drops().is_empty(), "Three food tokens are consumed once in the real Aquarium scene")
+	_expect(GameState.get_inventory_count("food_basic") == food_quantity_before_world_feeds, "Three meals leave the legacy food_basic quantity unchanged")
 	var food_pet_diagnostics: Array[String] = []
 	for pet_id in GameState.get_active_pet_ids():
 		var food_actor: Node2D = actors.get(pet_id) as Node2D
@@ -283,12 +342,14 @@ func _run() -> void:
 		_expect(int(GameState.get_pet(pet_id).get("hunger", 0)) > int(hunger_before_by_pet.get(pet_id, 100)), "%s receives a fair feed" % pet_id)
 
 	_expect(SaveManager.save_game(), "Three-pet Aquarium state saves to the isolated file")
+	var food_before_pending_drop: int = GameState.get_inventory_count("food_basic")
 	var pending_drop: Dictionary = FoodDropSystem.drop_food(actor_anchor.global_position + Vector2(140.0, 20.0))
 	var pending_token: String = str(pending_drop.get("token_id", ""))
 	var inventory_with_pending_drop: int = GameState.get_inventory_count("food_basic")
 	var one_pet_id: String = GameState.get_active_pet_ids()[0]
 	var hunger_before_pending_eat: int = int(GameState.get_pet(one_pet_id).get("hunger", 0))
 	_expect(not pending_token.is_empty(), "One more food token is reserved before exit")
+	_expect(inventory_with_pending_drop == food_before_pending_drop, "Pending reservation leaves the legacy quantity unchanged")
 	_expect(SaveManager.save_game(), "Pending feed ledger is durable before simulated exit")
 	GameState.reset_to_default()
 	_expect(SaveManager.load_game(), "Three-pet Aquarium state reloads")
@@ -296,27 +357,34 @@ func _run() -> void:
 	_expect(str(GameState.get_pet(selected_id).get("nickname", "")) == "Mochi", "Renamed pet identity survives the save reload")
 	_expect(GameState.get_inventory_count("food_basic") == inventory_with_pending_drop, "Reload retains exact reserved food inventory")
 	_expect(GameState.get_food_drops().size() == 1 and str(GameState.get_food_drops()[0].get("token_id", "")) == pending_token, "Reload restores an in-flight food token once")
+
 	await get_tree().process_frame
 	_expect((aquarium.get("actors_by_id") as Dictionary).size() == 3, "Reload reconciles exactly three live actors")
 	_expect(FoodDropSystem.consume_food(pending_token, one_pet_id), "A restored token resolves to one explicit eater")
 	_expect(not FoodDropSystem.consume_food(pending_token, one_pet_id), "A consumed token cannot be replayed")
 	_expect(int(GameState.get_pet(one_pet_id).get("hunger", 0)) > hunger_before_pending_eat, "The replay attempt adds no second meal")
-	_expect(GameState.get_inventory_count("food_basic") == inventory_with_pending_drop, "Consumption does not refund a spent token")
+	_expect(GameState.get_inventory_count("food_basic") == inventory_with_pending_drop, "Consumption leaves the legacy quantity unchanged")
 	_expect(GameState.get_food_drops().is_empty(), "Consumed token is removed from the save ledger")
 	await get_tree().create_timer(0.6).timeout
 	print("G1 acceptance: food restart transaction checks done")
 	var inventory_before_expiry: int = GameState.get_inventory_count("food_basic")
 	var expiry_water: Rect2 = aquarium.get("active_water_rect")
 	var expiry_position: Vector2 = expiry_water.position + Vector2(24.0, 24.0)
+	aquarium.set_process(false)
 	var expiring_drop: Dictionary = GameState.reserve_food_drop("food_basic", expiry_position, Time.get_unix_time_from_system() + 1.0)
 	var expiring_token: String = str(expiring_drop.get("token_id", ""))
 	_expect(not expiring_token.is_empty() and SaveManager.save_game(), "A short-lived food token saves before expiry")
+	_expect(GameState.get_inventory_count("food_basic") == inventory_before_expiry, "Short-lived reservation leaves the legacy quantity unchanged")
 	aquarium.call("_update_food_drops", 0.1)
 	_expect((aquarium.get("food_drop_visuals") as Dictionary).has(expiring_token), "In-flight food token has a visible sinking marker")
 	await get_tree().create_timer(1.2).timeout
-	await get_tree().process_frame
+	var first_expiry_count: int = FoodDropSystem.expire_due_drops()
+	var second_expiry_count: int = FoodDropSystem.expire_due_drops()
+	_expect(first_expiry_count == 1 and second_expiry_count == 0, "Expired food token settles once and cannot be removed again")
+	aquarium.call("_update_food_drops", 0.1)
+	aquarium.set_process(true)
 	_expect(GameState.get_food_drops().is_empty(), "An expired food token leaves the ledger")
-	_expect(GameState.get_inventory_count("food_basic") == inventory_before_expiry, "Expired food is refunded exactly once")
+	_expect(GameState.get_inventory_count("food_basic") == inventory_before_expiry, "Expired cleanup leaves the legacy quantity unchanged")
 	_expect(not (aquarium.get("food_drop_visuals") as Dictionary).has(expiring_token), "Expired food marker is removed from the Aquarium")
 	_expect(not (aquarium.get("food_claims") as Dictionary).has(expiring_token), "Expired food claim is cleared")
 	var inventory_before_duplicate_tap: int = GameState.get_inventory_count("food_basic")
@@ -325,19 +393,42 @@ func _run() -> void:
 	var world_touch: InputEventScreenTouch = InputEventScreenTouch.new()
 	world_touch.pressed = true
 	world_touch.position = water_tap
+	var delayed_pair_started_msec: int = Time.get_ticks_msec()
 	aquarium.call("_unhandled_input", world_touch)
-	var touch_drop_list: Array[Dictionary] = GameState.get_food_drops()
+	var touch_processing_msec: int = Time.get_ticks_msec() - delayed_pair_started_msec
+	var delayed_pair_wait_msec: int = maxi(150, 240 - touch_processing_msec)
+	OS.delay_usec(delayed_pair_wait_msec * 1000)
 	var duplicate_mouse: InputEventMouseButton = InputEventMouseButton.new()
 	duplicate_mouse.pressed = true
 	duplicate_mouse.button_index = MOUSE_BUTTON_LEFT
 	duplicate_mouse.position = water_tap
 	aquarium.call("_unhandled_input", duplicate_mouse)
-	_expect(touch_drop_list.size() == 1 and GameState.get_food_drops().size() == 1, "Touch plus its emulated mouse event reserves only one food token")
-	if not touch_drop_list.is_empty():
-		GameState.resolve_food_drop(str(touch_drop_list[0].get("token_id", "")))
-		SaveManager.save_game()
-		aquarium.call("_update_food_drops", 0.0)
-	_expect(GameState.get_inventory_count("food_basic") == inventory_before_duplicate_tap, "Duplicate world input does not spend food twice")
+	var delayed_pair_elapsed_msec: int = Time.get_ticks_msec() - delayed_pair_started_msec
+	_expect(delayed_pair_elapsed_msec >= 240 and GameState.get_food_drops().size() == 1, "Touch/mouse pair delayed at least 240 ms including synchronous reservation still reserves one token")
+	var second_touch: InputEventScreenTouch = InputEventScreenTouch.new()
+	second_touch.pressed = true
+	second_touch.position = water_tap
+	aquarium.call("_unhandled_input", second_touch)
+	_expect(GameState.get_food_drops().size() == 2, "A separate second touch at the same location creates another token")
+	var second_duplicate_mouse: InputEventMouseButton = InputEventMouseButton.new()
+	second_duplicate_mouse.pressed = true
+	second_duplicate_mouse.button_index = MOUSE_BUTTON_LEFT
+	second_duplicate_mouse.position = water_tap
+	aquarium.call("_unhandled_input", second_duplicate_mouse)
+	_expect(GameState.get_food_drops().size() == 2, "The second touch also consumes only its paired mouse event")
+	var world_mouse_only: InputEventMouseButton = InputEventMouseButton.new()
+	world_mouse_only.pressed = true
+	world_mouse_only.button_index = MOUSE_BUTTON_LEFT
+	world_mouse_only.position = water_tap
+	aquarium.call("_unhandled_input", world_mouse_only)
+	_expect(GameState.get_food_drops().size() == 3, "A separate mouse-only click at the same location remains usable")
+	for paired_drop in GameState.get_food_drops():
+		GameState.resolve_food_drop(str(paired_drop.get("token_id", "")))
+	SaveManager.save_game()
+	aquarium.call("_update_food_drops", 0.0)
+	_expect(GameState.get_inventory_count("food_basic") == inventory_before_duplicate_tap, "Paired input and separate drops leave the legacy quantity unchanged")
+	await _run_full_food_fairness_case(aquarium, actor_anchor, actors)
+	await _run_sunk_food_decay_case(aquarium, actor_anchor, actors)
 	aquarium.call("_set_pet_info_open", false)
 	await get_tree().create_timer(0.4).timeout
 	var panel_actors_ready: bool = false
@@ -470,8 +561,26 @@ func _run() -> void:
 		info_close_preserved_world = info_close_preserved_world and actor_anchor.to_global(chase_actor_after_close.get("roam_target")).distance_to(before_state.get("food_target")) <= 0.5
 	_expect(info_close_preserved_world, "Closing pet details preserves the actor, position, food target and behavior phase")
 	await get_tree().create_timer(0.4).timeout
+	var no_modal_back_food_count: int = GameState.get_food_drops().size()
+	var no_modal_back_selected: String = GameState.get_selected_pet_id()
+	var no_modal_back: InputEventKey = InputEventKey.new()
+	no_modal_back.pressed = true
+	no_modal_back.keycode = KEY_ESCAPE
+	aquarium.call("_unhandled_key_input", no_modal_back)
+	_expect(aquarium.is_inside_tree() and GameState.get_food_drops().size() == no_modal_back_food_count and GameState.get_selected_pet_id() == no_modal_back_selected, "Back with no modal leaves the existing Aquarium behavior and game state unchanged")
 	var log_was_open: bool = false
 	if OS.is_debug_build():
+		(aquarium.get_node("%LogToggleButton") as Button).pressed.emit()
+		log_was_open = runtime_log_panel.visible
+		var log_back_food_count: int = GameState.get_food_drops().size()
+		var log_back: InputEventKey = InputEventKey.new()
+		log_back.pressed = true
+		log_back.keycode = KEY_ESCAPE
+		aquarium.call("_unhandled_key_input", log_back)
+		_expect(not runtime_log_panel.visible and GameState.get_food_drops().size() == log_back_food_count and aquarium.is_inside_tree(), "Back closes the debug log without leaking an action or leaving the Aquarium")
+		var actions_after_log_back: Dictionary = aquarium.get("last_action_time_by_name") as Dictionary
+		actions_after_log_back["log_toggle"] = -999999.0
+		aquarium.set("last_action_time_by_name", actions_after_log_back)
 		(aquarium.get_node("%LogToggleButton") as Button).pressed.emit()
 		log_was_open = runtime_log_panel.visible
 	aquarium.call("_on_shop_pressed")
@@ -482,6 +591,12 @@ func _run() -> void:
 	modal_touch.position = modal_water_rect.get_center()
 	aquarium.call("_unhandled_input", modal_touch)
 	_expect(shop_panel.visible and not runtime_log_panel.visible and modal_input_shield.visible and (not OS.is_debug_build() or log_was_open) and GameState.get_food_drops().size() == modal_food_before, "Shop closes the debug log and blocks background water input")
+	var shop_back: InputEventKey = InputEventKey.new()
+	shop_back.pressed = true
+	shop_back.keycode = KEY_ESCAPE
+	aquarium.call("_unhandled_key_input", shop_back)
+	_expect(not shop_panel.visible and not modal_input_shield.visible and GameState.get_food_drops().size() == modal_food_before and aquarium.is_inside_tree(), "Back closes the topmost Shop without creating food or leaving the Aquarium")
+	aquarium.call("_set_shop_open", true)
 	var close_shop_button: Button = shop_panel.get_node("%CloseShopButton") as Button
 	close_shop_button.pressed.emit()
 	_expect(not shop_panel.visible and not modal_input_shield.visible and not runtime_log_panel.visible and RuntimeLogger.get_log_text().contains("Shop clicked"), "Closing Shop restores the aquarium and preserves hidden log contents")
@@ -513,7 +628,19 @@ func _run() -> void:
 	var manual_bubble: Node = (aquarium.get("coin_bubbles_by_id") as Dictionary).get(manual_token) as Node
 	_expect(manual_bubble != null, "Reserved coin restores as a visible pickup")
 	if manual_bubble != null:
+		var idle_art: TextureRect = manual_bubble.get_node("%IdleArt") as TextureRect
+		var hint_art: TextureRect = manual_bubble.get_node("%HintArt") as TextureRect
+		var pickup_fx_art: TextureRect = manual_bubble.get_node("%PickupFxArt") as TextureRect
+		var coin_hitbox_ok: bool = Vector2(manual_bubble.get("custom_minimum_size")).x >= 48.0 and Vector2(manual_bubble.get("custom_minimum_size")).y >= 48.0
+		var coin_art_ok: bool = str(manual_bubble.get("text")) == "" and idle_art.texture.resource_path.ends_with("coin_idle_round_v2_32.png")
+		coin_art_ok = coin_art_ok and hint_art.texture.resource_path.ends_with("coin_pickup_hint_round_v2_32.png") and pickup_fx_art.texture.resource_path.ends_with("coin_pickup_fx_round_v2_32.png")
+		coin_art_ok = coin_art_ok and idle_art.texture_filter == CanvasItem.TEXTURE_FILTER_NEAREST and hint_art.texture_filter == CanvasItem.TEXTURE_FILTER_NEAREST and pickup_fx_art.texture_filter == CanvasItem.TEXTURE_FILTER_NEAREST
+		_expect(coin_hitbox_ok and coin_art_ok, "Coin target stays at least 48dp and uses only approved round v2 pixel-art states")
+		manual_bubble.button_down.emit()
+		_expect(hint_art.visible and not idle_art.visible, "Coin pickup hint art appears on pointer hover")
+		manual_bubble.button_up.emit()
 		manual_bubble.call("collect", false)
+		_expect(pickup_fx_art.visible and not hint_art.visible and not idle_art.visible, "Coin collection shows the approved pickup effect")
 		manual_bubble.call("collect", false)
 	_expect(GameState.get_currency("bubble_coin") == coin_before + 3, "Manual pickup credits once before the wallet animation")
 	_expect(GameState.get_coin_drops().is_empty(), "Collected coin is removed from its durable ledger")
@@ -556,6 +683,162 @@ func _run() -> void:
 	_finish()
 
 
+func _run_full_food_fairness_case(aquarium: Control, actor_anchor: Node2D, actors: Dictionary) -> void:
+	var pet_ids: Array[String] = GameState.get_active_pet_ids()
+	if pet_ids.size() < 2:
+		_expect(false, "Full-food fairness case has a hungry and a full pet")
+		return
+	var baseline_pets: Dictionary = {}
+	for pet_id in pet_ids:
+		baseline_pets[pet_id] = GameState.get_pet(pet_id).duplicate(true)
+	var hungry_pet_id: String = pet_ids[0]
+	var full_pet_id: String = pet_ids[2] if pet_ids.size() > 2 else pet_ids[1]
+	var hungry_pet: Dictionary = GameState.get_pet(hungry_pet_id)
+	hungry_pet["hunger"] = 35
+	GameState.set_pet(hungry_pet_id, hungry_pet)
+	var full_pet: Dictionary = GameState.get_pet(full_pet_id)
+	full_pet["hunger"] = 100
+	GameState.set_pet(full_pet_id, full_pet)
+	for pet_id in pet_ids:
+		var actor: Node2D = actors.get(pet_id) as Node2D
+		if actor != null:
+			actor.call("refresh_pet")
+	var ready_wait: float = 0.0
+	while ready_wait < 3.0:
+		var hungry_actor_ready: Node2D = actors.get(hungry_pet_id) as Node2D
+		var full_actor_ready: Node2D = actors.get(full_pet_id) as Node2D
+		if hungry_actor_ready != null and full_actor_ready != null and bool(hungry_actor_ready.call("can_accept_food")) and bool(full_actor_ready.call("can_react_to_full_food")):
+			break
+		await get_tree().create_timer(0.1).timeout
+		ready_wait += 0.1
+	var hungry_actor: Node2D = actors.get(hungry_pet_id) as Node2D
+	var full_actor: Node2D = actors.get(full_pet_id) as Node2D
+	_expect(hungry_actor != null and full_actor != null and bool(hungry_actor.call("can_accept_food")) and bool(full_actor.call("can_react_to_full_food")), "Hungry and full actors enter their respective feed-ready states")
+	if hungry_actor == null or full_actor == null:
+		return
+	var food_quantity_before: int = GameState.get_inventory_count("food_basic")
+	var expected_exp: int = int(GameApp.get_table("items").get("food_basic", {}).get("growth_exp_add", 0))
+	var hungry_exp_before: int = int(GameState.get_pet(hungry_pet_id).get("growth_exp", 0))
+	var full_exp_before: int = int(GameState.get_pet(full_pet_id).get("growth_exp", 0))
+	var water: Rect2 = aquarium.get("active_water_rect")
+	var drop: Dictionary = aquarium.call("_drop_basic_food", water.get_center())
+	var token_id: String = str(drop.get("token_id", ""))
+	_expect(not token_id.is_empty(), "Food with one hungry and one full pet reserves a token")
+	if token_id.is_empty():
+		return
+	aquarium.call("_update_food_drops", 0.0)
+	var claims: Dictionary = aquarium.get("food_claims") as Dictionary
+	var claim_is_hungry: bool = str(claims.get(token_id, "")) == hungry_pet_id
+	var full_reaction_started: bool = str(full_actor.get("full_food_drop_id")) == token_id
+	full_reaction_started = full_reaction_started and str(full_actor.get("behavior_state")) in ["approach_full_food", "full_food_refusal"]
+	_expect(claim_is_hungry and not claims.values().has(full_pet_id), "Hungry pet claims food while the full pet remains outside the claim ledger")
+	_expect(full_reaction_started, "Full pet chases nearby food and starts a non-consuming refusal reaction")
+	var marker: Control = (aquarium.get("food_drop_visuals") as Dictionary).get(token_id) as Control
+	if marker != null:
+		hungry_actor.position = actor_anchor.to_local(aquarium.call("_food_marker_center", marker))
+		aquarium.call("_update_food_drops", 0.0)
+	var has_eating_animation: bool = (aquarium.get("food_eating_visuals") as Dictionary).has(token_id)
+	_expect(has_eating_animation, "Food visibly enters the hungry pet's eat animation")
+	var wait_time: float = 0.0
+	while GameState.get_food_drops().size() > 0 and wait_time < 2.0:
+		await get_tree().create_timer(0.1).timeout
+		wait_time += 0.1
+	var hungry_after: Dictionary = GameState.get_pet(hungry_pet_id)
+	var full_after: Dictionary = GameState.get_pet(full_pet_id)
+	_expect(GameState.get_food_drops().is_empty(), "Hungry pet settles its token once")
+	_expect(int(hungry_after.get("hunger", 0)) == 65 and int(hungry_after.get("growth_exp", 0)) == hungry_exp_before + expected_exp, "Hungry pet receives one meal and its configured EXP")
+	_expect(int(full_after.get("hunger", 0)) == 100 and int(full_after.get("growth_exp", 0)) == full_exp_before, "Full pet refusal grants no hunger or growth reward")
+	_expect(GameState.get_inventory_count("food_basic") == food_quantity_before, "Hungry meal and full refusal leave the legacy quantity unchanged")
+	_expect(str((aquarium.get_node("%MessageLabel") as Label).text).contains("satiety"), "Eating displays corresponding satiety feedback")
+	if not GameState.get_food_drops().is_empty():
+		_clear_food_regression_token(aquarium, hungry_actor, token_id)
+	for pet_id in pet_ids:
+		GameState.set_pet(pet_id, baseline_pets[pet_id])
+		var actor: Node2D = actors.get(pet_id) as Node2D
+		if actor != null:
+			actor.call("refresh_pet")
+	SaveManager.save_game()
+
+
+func _run_sunk_food_decay_case(aquarium: Control, actor_anchor: Node2D, actors: Dictionary) -> void:
+	var pet_ids: Array[String] = GameState.get_active_pet_ids()
+	var baseline_pets: Dictionary = {}
+	for pet_id in pet_ids:
+		var pet: Dictionary = GameState.get_pet(pet_id)
+		baseline_pets[pet_id] = pet.duplicate(true)
+		pet["hunger"] = 100
+		GameState.set_pet(pet_id, pet)
+		var actor: Node2D = actors.get(pet_id) as Node2D
+		if actor != null:
+			actor.call("refresh_pet")
+	var ready_wait: float = 0.0
+	while ready_wait < 3.0:
+		var all_ready: bool = true
+		for pet_id in pet_ids:
+			var actor: Node2D = actors.get(pet_id) as Node2D
+			all_ready = all_ready and actor != null and bool(actor.call("can_react_to_full_food"))
+		if all_ready:
+			break
+		await get_tree().create_timer(0.1).timeout
+		ready_wait += 0.1
+	var food_quantity_before: int = GameState.get_inventory_count("food_basic")
+	var water: Rect2 = aquarium.get("active_water_rect")
+	var floor_position: Vector2 = Vector2(water.get_center().x, water.end.y - 16.0)
+	var drop: Dictionary = aquarium.call("_drop_basic_food", floor_position)
+	var token_id: String = str(drop.get("token_id", ""))
+	_expect(not token_id.is_empty(), "Full pets allow a food token to sink")
+	if token_id.is_empty():
+		for pet_id in pet_ids:
+			GameState.set_pet(pet_id, baseline_pets[pet_id])
+		return
+	aquarium.call("_update_food_drops", 60.0)
+	var visuals: Dictionary = aquarium.get("food_drop_visuals") as Dictionary
+	var sunk_visual: Control = visuals.get(token_id) as Control
+	var no_hungry_claim: bool = not (aquarium.get("food_claims") as Dictionary).has(token_id)
+	_expect(sunk_visual != null and no_hungry_claim, "A sunk pellet remains visual for full pets without occupying a hungry claim")
+	var full_actor: Node2D = actors.get(pet_ids[0]) as Node2D
+	var full_pet_state: String = ""
+	var refusal_bubble_found: bool = false
+	var full_pet_swims_to_food: bool = false
+	var original_full_actor_position: Vector2 = Vector2.ZERO
+	if full_actor != null and sunk_visual != null:
+		var full_food_target: Vector2 = actor_anchor.to_local(aquarium.call("_food_marker_center", sunk_visual))
+		original_full_actor_position = full_actor.position
+		var approach_target: Vector2 = full_actor.call("_clamp_to_water", full_food_target)
+		full_actor.position = full_actor.call("_clamp_to_water", approach_target - Vector2(48.0, 0.0))
+		var starting_distance: float = full_actor.position.distance_to(full_food_target)
+		for _step in range(120):
+			aquarium.call("_update_food_drops", 0.05)
+			full_actor.call("_process", 0.05)
+			if str(full_actor.get("behavior_state")) == "full_food_refusal":
+				break
+		full_pet_state = str(full_actor.get("behavior_state"))
+		var ending_distance: float = full_actor.position.distance_to(full_food_target)
+		full_pet_swims_to_food = starting_distance > 10.0 and ending_distance < starting_distance
+		for child in (aquarium.get_node("%FoodDropContainer") as Control).get_children():
+			if child is Label and str((child as Label).text) == "吃飽了":
+				refusal_bubble_found = true
+		if not full_pet_swims_to_food or full_pet_state != "full_food_refusal" or not refusal_bubble_found:
+			print("G1 full-food refusal diagnostic: token=%s start_distance=%.2f end_distance=%.2f state=%s target=%s reactions=%s bubble=%s" % [token_id, starting_distance, ending_distance, full_pet_state, str(full_actor.get("full_food_drop_id")), str((aquarium.get("full_food_reactions_by_token") as Dictionary).get(token_id, {})), str(refusal_bubble_found)])
+	_expect(full_pet_swims_to_food and full_pet_state == "full_food_refusal" and refusal_bubble_found, "Full pet swims to nearby food, says 吃飽了 and shakes its head")
+	if full_actor != null:
+		full_actor.position = original_full_actor_position
+	await get_tree().create_timer(3.2).timeout
+	_expect(not _food_ledger_has_token(token_id) and GameState.get_food_drops().is_empty(), "Sunk unattended food clears from the live ledger after a few seconds")
+	_expect(not (aquarium.get("food_drop_visuals") as Dictionary).has(token_id) and not (aquarium.get("food_claims") as Dictionary).has(token_id), "Sunk-token cleanup removes its marker and claim state")
+	_expect(GameState.get_inventory_count("food_basic") == food_quantity_before, "Sunk-token cleanup does not refund or alter the legacy quantity")
+	for pet_id in pet_ids:
+		var full_pet_before_restore: Dictionary = GameState.get_pet(pet_id)
+		var original_pet: Dictionary = baseline_pets[pet_id] as Dictionary
+		_expect(int(full_pet_before_restore.get("hunger", -1)) == 100 and int(full_pet_before_restore.get("growth_exp", -1)) == int(original_pet.get("growth_exp", -2)), "Full-pet refusal grants no hunger or growth reward")
+		GameState.set_pet(pet_id, baseline_pets[pet_id])
+		var actor: Node2D = actors.get(pet_id) as Node2D
+		if actor != null:
+			actor.call("refresh_pet")
+		_expect(int(GameState.get_pet(pet_id).get("hunger", -1)) == int((baseline_pets[pet_id] as Dictionary).get("hunger", -2)), "Sunk-food regression restores each pet's prior hunger")
+	SaveManager.save_game()
+
+
 func _run_food_geometry_regression(aquarium: Control, actor_anchor: Node2D, actors: Dictionary) -> void:
 	var pet_ids: Array[String] = GameState.get_active_pet_ids()
 	_expect(pet_ids.size() == 3, "Food geometry regression starts with three active actors")
@@ -565,10 +848,9 @@ func _run_food_geometry_regression(aquarium: Control, actor_anchor: Node2D, acto
 
 	var baseline_pets: Dictionary = {}
 	for pet_id in pet_ids:
-		baseline_pets[pet_id] = GameState.get_pet(pet_id)
+		baseline_pets[pet_id] = GameState.get_pet(pet_id).duplicate(true)
 	var baseline_inventory: int = GameState.get_inventory_count("food_basic")
 	var test_case_count: int = 22
-	GameState.set_inventory_count("food_basic", baseline_inventory + test_case_count)
 	var original_viewport: Vector2 = aquarium.get_viewport_rect().size
 	var original_safe: Rect2 = aquarium.call("_get_safe_viewport_rect", original_viewport)
 	var original_info_open: bool = bool(aquarium.get("pet_info_open"))
@@ -659,7 +941,7 @@ func _run_food_geometry_regression(aquarium: Control, actor_anchor: Node2D, acto
 		var actor: Node2D = actors.get(pet_id) as Node2D
 		if actor != null:
 			actor.call("refresh_pet")
-	GameState.set_inventory_count("food_basic", baseline_inventory)
+	_expect(GameState.get_inventory_count("food_basic") == baseline_inventory, "All geometry regression feeds preserve the legacy quantity")
 	aquarium.set("passive_timer", original_passive_timer)
 	SaveManager.save_game()
 	if original_info_open:
@@ -705,6 +987,8 @@ func _run_food_contact_case(
 	var expected_food_exp: int = int(GameApp.get_table("items").get("food_basic", {}).get("growth_exp_add", 0))
 	var drop: Dictionary = aquarium.call("_drop_basic_food", raw_position, pet_id)
 	var token_id: String = str(drop.get("token_id", ""))
+	if token_id.is_empty():
+		print("G1 food reservation diagnostic: case=%s ledger=%d hunger=%d actor_state=%s can_accept=%s save_blocked=%s has_save=%s" % [label, GameState.get_food_drops().size(), int(GameState.get_pet(pet_id).get("hunger", -1)), str(actor.get("behavior_state")), str(actor.call("can_accept_food")), str(SaveManager.get("load_blocked")), str(SaveManager.has_save())])
 	_expect(not token_id.is_empty(), "%s reserves one regression feed" % label)
 	if token_id.is_empty():
 		GameState.set_pet(pet_id, baseline_pet)
@@ -714,7 +998,8 @@ func _run_food_contact_case(
 	aquarium.call("_update_food_drops", 0.0)
 	var visuals: Dictionary = aquarium.get("food_drop_visuals")
 	var marker: Control = visuals.get(token_id) as Control
-	_expect(marker is Panel and marker.size == Vector2(32.0, 32.0), "%s uses the fixed native food marker" % label)
+	_expect(marker != null and marker.size == Vector2(32.0, 32.0), "%s preserves the fixed 32-pixel food interaction frame" % label)
+	_expect(marker is TextureRect and marker.texture.resource_path.ends_with("/food/pellet_32.png"), "%s uses the approved 32-pixel food pellet" % label)
 	if marker == null:
 		_clear_food_regression_token(aquarium, actor, token_id)
 		GameState.set_pet(pet_id, baseline_pet)
@@ -769,7 +1054,7 @@ func _run_food_contact_case(
 	_expect(not token_remains, "%s completes the real eat timer and food_eaten consume callback" % label)
 	_expect(int(fed_pet.get("hunger", 0)) == 65, "%s grants one feed benefit" % label)
 	_expect(int(fed_pet.get("growth_exp", 0)) == growth_exp_before + expected_food_exp, "%s grants the configured food EXP exactly once" % label)
-	_expect(GameState.get_inventory_count("food_basic") == inventory_before - 1, "%s spends one food token" % label)
+	_expect(GameState.get_inventory_count("food_basic") == inventory_before, "%s leaves the legacy food_basic quantity unchanged" % label)
 	_expect(not (aquarium.get("food_claims") as Dictionary).has(token_id), "%s clears its completed claim" % label)
 	_expect(not (aquarium.get("food_drop_visuals") as Dictionary).has(token_id), "%s removes its completed marker" % label)
 	if token_remains:
@@ -792,6 +1077,14 @@ func _run_food_remote_case(
 	GameState.set_pet(pet_id, test_pet)
 	actor.call("refresh_pet")
 	actor.call("set_stage", 5, str(test_pet.get("species_id", "normal_jellycat")))
+	var ready_wait: float = 0.0
+	while actor != null and not bool(actor.call("can_accept_food")) and ready_wait < 3.0:
+		await get_tree().create_timer(0.1).timeout
+		ready_wait += 0.1
+	_expect(actor != null and bool(actor.call("can_accept_food")), "Remote-food regression actor becomes ready for the 20:9 feed")
+	if actor == null or not bool(actor.call("can_accept_food")):
+		GameState.set_pet(pet_id, baseline_pet)
+		return
 	var water: Rect2 = aquarium.get("active_water_rect")
 	actor.position = actor_anchor.to_local(water.position + Vector2(48.0, 48.0))
 	var inventory_before: int = GameState.get_inventory_count("food_basic")
@@ -826,7 +1119,7 @@ func _run_food_remote_case(
 	_expect(not token_remains, "The remote regression feed completes only after visible body contact")
 	_expect(int(GameState.get_pet(pet_id).get("hunger", 0)) == 65, "The remote regression feed gives one benefit after contact")
 	_expect(int(GameState.get_pet(pet_id).get("growth_exp", 0)) == growth_exp_before + expected_food_exp, "The remote regression feed grants the configured EXP exactly once")
-	_expect(GameState.get_inventory_count("food_basic") == inventory_before - 1, "The remote regression feed spends one token")
+	_expect(GameState.get_inventory_count("food_basic") == inventory_before, "The remote regression feed leaves the legacy quantity unchanged")
 	_expect(not (aquarium.get("food_claims") as Dictionary).has(token_id), "The remote regression clears its claim")
 	_expect(not (aquarium.get("food_drop_visuals") as Dictionary).has(token_id), "The remote regression removes its marker")
 	if token_remains:
@@ -902,7 +1195,7 @@ func _run_food_panel_chase_case(
 	_expect(not token_remains, "The live panel-transition chase reaches the real eat callback")
 	_expect(int(GameState.get_pet(pet_id).get("hunger", 0)) == 65, "The panel-transition chase grants one meal")
 	_expect(int(GameState.get_pet(pet_id).get("growth_exp", 0)) == growth_exp_before + expected_food_exp, "The panel-transition chase grants the configured EXP exactly once")
-	_expect(GameState.get_inventory_count("food_basic") == inventory_before - 1, "The panel-transition chase spends one token")
+	_expect(GameState.get_inventory_count("food_basic") == inventory_before, "The panel-transition chase leaves the legacy quantity unchanged")
 	_expect(not (aquarium.get("food_claims") as Dictionary).has(token_id), "The panel-transition chase clears its claim")
 	_expect(not (aquarium.get("food_drop_visuals") as Dictionary).has(token_id), "The panel-transition chase removes its marker")
 	if token_remains:
@@ -931,6 +1224,13 @@ func _food_marker_fits_active_water(aquarium: Control, marker: Control) -> bool:
 		and marker_rect.end.x <= water.end.x + 0.5
 		and marker_rect.end.y <= water.end.y + 0.5
 	)
+
+
+func _food_ledger_has_token(token_id: String) -> bool:
+	for drop in GameState.get_food_drops():
+		if str(drop.get("token_id", "")) == token_id:
+			return true
+	return false
 
 
 func _expect(condition: bool, label: String) -> void:

@@ -1,15 +1,18 @@
 extends Node2D
 
 signal food_eaten(token_id: String, pet_id: String)
+signal food_refused(token_id: String, pet_id: String)
 
 const DEFAULT_SPECIES_ID: String = "normal_jellycat"
 const DEFAULT_MAX_STAGE: int = 5
 const STAGE_TEXTURE_PATH: String = "res://assets/jellycats/%s/stages/stage_%d.png"
 const STAGE_ONE_BODY_RATIO: float = 0.18
 const MAX_STAGE_BODY_RATIO: float = 0.22
-const MAX_EAT_SCALE: float = 1.05
+const MAX_EAT_SCALE: float = 1.09
 const MAX_SWIM_ROTATION: float = 0.025
 const BOB_AMPLITUDE: float = 8.0
+const EAT_ANIMATION_SECONDS: float = 0.45
+const FULL_FOOD_REFUSAL_SECONDS: float = 0.8
 
 @onready var sprite: Sprite2D = %Sprite
 
@@ -21,8 +24,12 @@ var idle_time: float = 0.0
 var roam_target: Vector2 = Vector2.ZERO
 var behavior_state: String = "idle_roam"
 var food_drop_id: String = ""
+var full_food_drop_id: String = ""
 var post_meal_timer: float = 0.0
 var touch_reaction_timer: float = 0.0
+var eat_elapsed: float = 0.0
+var full_food_refusal_timer: float = 0.0
+var eat_timer: Timer
 var current_stage: int = 0
 var current_species_id: String = ""
 var base_scale: float = STAGE_ONE_BODY_RATIO
@@ -77,6 +84,12 @@ func _process(delta: float) -> void:
 					_move_toward(roam_target, float(GameApp.get_balance_value("actor_swim_speed", 32.0)), delta)
 			"approach_food":
 				_move_toward(roam_target, float(GameApp.get_balance_value("actor_food_chase_speed", 68.0)), delta)
+			"approach_full_food":
+				_move_toward(roam_target, float(GameApp.get_balance_value("actor_food_chase_speed", 68.0)), delta)
+				if position.distance_to(roam_target) <= 10.0:
+					_begin_full_food_refusal()
+			"eat":
+				eat_elapsed = minf(EAT_ANIMATION_SECONDS, eat_elapsed + delta)
 			"post_meal":
 				post_meal_timer -= delta
 				if post_meal_timer <= 0.0:
@@ -87,13 +100,21 @@ func _process(delta: float) -> void:
 				if touch_reaction_timer <= 0.0:
 					behavior_state = "idle_roam"
 					_choose_roam_target()
+			"full_food_refusal":
+				full_food_refusal_timer -= delta
+				if full_food_refusal_timer <= 0.0:
+					full_food_drop_id = ""
+					behavior_state = "idle_roam"
+					_choose_roam_target()
 	pulse_scale = 1.0
 	if behavior_state == "eat":
-		pulse_scale = 1.0 + sin(bob_time * 14.0) * 0.05
+		pulse_scale = _get_eat_pulse_scale(eat_elapsed)
 	if behavior_state == "idle_roam" or behavior_state == "approach_food":
 		sprite.flip_h = offset.x < 0.0
 	bob_offset = sin(bob_time * 2.0 + bob_phase) * BOB_AMPLITUDE
 	sprite.rotation = sin(bob_time * 1.2 + bob_phase) * MAX_SWIM_ROTATION
+	if behavior_state == "full_food_refusal":
+		sprite.rotation += sin(bob_time * 30.0) * 0.32
 	_apply_sprite_pose()
 	if not layout_transition_active:
 		position = _clamp_to_water(position)
@@ -174,7 +195,7 @@ func _advance_layout_transition(delta: float) -> void:
 
 
 func set_food_target(token_id: String, target_position: Vector2) -> bool:
-	if behavior_state == "post_meal" or behavior_state == "touch_reaction" or behavior_state == "eat":
+	if behavior_state in ["post_meal", "touch_reaction", "eat", "approach_full_food", "full_food_refusal"]:
 		return false
 	food_drop_id = token_id
 	if layout_transition_active:
@@ -188,7 +209,12 @@ func set_food_target(token_id: String, target_position: Vector2) -> bool:
 func clear_food_target(token_id: String) -> void:
 	if food_drop_id != token_id:
 		return
+	if eat_timer != null:
+		eat_timer.stop()
+		eat_timer.queue_free()
+		eat_timer = null
 	food_drop_id = ""
+	eat_elapsed = 0.0
 	pulse_scale = 1.0
 	_apply_sprite_pose()
 	behavior_state = "idle_roam"
@@ -199,13 +225,31 @@ func begin_eating(token_id: String) -> void:
 	if food_drop_id != token_id or behavior_state != "approach_food":
 		return
 	behavior_state = "eat"
-	_finish_eating(token_id)
+	eat_elapsed = 0.0
+	_play_sheet_effect("res://assets/effects/eat_sheet_3x32.png", 3, 12.0)
+	eat_timer = Timer.new()
+	eat_timer.one_shot = true
+	eat_timer.wait_time = EAT_ANIMATION_SECONDS
+	eat_timer.timeout.connect(_on_eat_timer_timeout.bind(token_id))
+	add_child(eat_timer)
+	eat_timer.start()
 
 
-func _finish_eating(token_id: String) -> void:
-	await get_tree().create_timer(0.45).timeout
+func _on_eat_timer_timeout(token_id: String) -> void:
+	if eat_timer != null:
+		eat_timer.queue_free()
+		eat_timer = null
 	if is_inside_tree() and behavior_state == "eat" and food_drop_id == token_id:
 		food_eaten.emit(token_id, pet_id)
+
+
+func _get_eat_pulse_scale(elapsed: float) -> float:
+	var progress: float = clampf(elapsed / EAT_ANIMATION_SECONDS, 0.0, 1.0)
+	if progress < 0.2:
+		return lerpf(1.0, 0.82, progress / 0.2)
+	if progress < 0.55:
+		return lerpf(0.82, 1.09, (progress - 0.2) / 0.35)
+	return lerpf(1.09, 1.0, (progress - 0.55) / 0.45)
 
 
 func complete_meal(token_id: String) -> void:
@@ -220,10 +264,65 @@ func complete_meal(token_id: String) -> void:
 
 
 func react_to_touch() -> void:
-	if behavior_state == "eat" or behavior_state == "post_meal":
+	if behavior_state in ["eat", "post_meal", "full_food_refusal"]:
 		return
 	behavior_state = "touch_reaction"
 	touch_reaction_timer = 0.8
+	_play_sheet_effect("res://assets/effects/pet_sheet_4x32.png", 4, 12.0)
+
+
+func can_react_to_full_food() -> bool:
+	return behavior_state == "idle_roam" or behavior_state == "approach_full_food"
+
+
+func set_full_food_target(token_id: String, target_position: Vector2) -> bool:
+	if token_id.is_empty() or not can_react_to_full_food():
+		return false
+	full_food_drop_id = token_id
+	roam_target = _clamp_to_water(target_position)
+	behavior_state = "approach_full_food"
+	return true
+
+
+func clear_full_food_target(token_id: String) -> void:
+	if full_food_drop_id != token_id:
+		return
+	full_food_drop_id = ""
+	if behavior_state == "approach_full_food":
+		behavior_state = "idle_roam"
+		_choose_roam_target()
+
+
+func _begin_full_food_refusal() -> void:
+	if full_food_drop_id.is_empty() or behavior_state != "approach_full_food":
+		return
+	behavior_state = "full_food_refusal"
+	full_food_refusal_timer = FULL_FOOD_REFUSAL_SECONDS
+	food_refused.emit(full_food_drop_id, pet_id)
+
+
+func _play_sheet_effect(texture_path: String, frame_count: int, fps: float) -> void:
+	var sheet: Texture2D = load(texture_path) as Texture2D
+	if sheet == null:
+		return
+	var frames: SpriteFrames = SpriteFrames.new()
+	frames.add_animation("play")
+	frames.set_animation_speed("play", fps)
+	frames.set_animation_loop("play", false)
+	for frame_index in range(frame_count):
+		var frame: AtlasTexture = AtlasTexture.new()
+		frame.atlas = sheet
+		frame.region = Rect2(Vector2(frame_index * 32, 0), Vector2(32, 32))
+		frames.add_frame("play", frame)
+	var effect: AnimatedSprite2D = AnimatedSprite2D.new()
+	effect.sprite_frames = frames
+	effect.animation = "play"
+	effect.position = Vector2(0.0, -maxf(get_visual_body_size().y * 0.35, 18.0))
+	effect.z_index = 5
+	effect.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	effect.animation_finished.connect(effect.queue_free)
+	add_child(effect)
+	effect.play("play")
 
 
 func can_accept_food() -> bool:

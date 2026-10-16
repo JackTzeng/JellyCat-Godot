@@ -103,6 +103,7 @@ run_godot import_bootstrap 90 "" "$godot_bin" --headless --editor --path "$proje
 if ! "$python_bin" "$gate_test" verify-imports --root "$project_root"; then gate_failures+=(import_assets); fi
 run_godot import_validate 120 "" "$godot_bin" --headless --editor --path "$project_root" --quit
 run_godot core_acceptance 180 "RUNTIME_ACCEPTANCE_OK " "$godot_bin" --headless --path "$project_root" res://tools/runtime_acceptance_check.tscn
+run_godot save_durability_acceptance 180 "SAVE_DURABILITY_ACCEPTANCE_OK " "$godot_bin" --headless --path "$project_root" res://tools/save_durability_acceptance_check.tscn
 run_godot scene_acceptance 120 "ANDROID_SCENE_ACCEPTANCE_OK " "$godot_bin" --headless --path "$project_root" res://tools/android_scene_acceptance_check.tscn
 if [[ -f "$project_root/tools/g1_gameplay_acceptance.tscn" ]]; then
   run_godot g1_gameplay_acceptance 180 "G1_GAMEPLAY_ACCEPTANCE_OK " "$godot_bin" --headless --path "$project_root" res://tools/g1_gameplay_acceptance.tscn

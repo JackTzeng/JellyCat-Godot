@@ -93,20 +93,39 @@ func _run() -> void:
 	var game_state: Variant = get_tree().root.get_node("GameState")
 	var before_food: int = int(game_state.get_inventory_count("food_basic"))
 	feed_button.pressed.emit()
-	var food_spent: bool = false
+	var food_reserved: bool = false
 	var feed_deadline_msec: int = Time.get_ticks_msec() + 5000
 	while Time.get_ticks_msec() < feed_deadline_msec:
 		await get_tree().process_frame
-		if int(game_state.get_inventory_count("food_basic")) == before_food - 1:
-			food_spent = true
+		if game_state.get_food_drops().size() == 1:
+			food_reserved = true
 			break
-	_expect(food_spent, "Aquarium Feed reserves exactly one food token within five seconds")
+	_expect(food_reserved, "Aquarium Feed reserves one unlimited-food token within five seconds")
+	_expect(int(game_state.get_inventory_count("food_basic")) == before_food, "Aquarium Feed leaves the legacy food_basic quantity unchanged")
+	var daily_claim_before: Dictionary = game_state.get_daily_claim()
+	daily_claim_before["last_free_food_date"] = "legacy-marker"
+	game_state.set_daily_claim(daily_claim_before)
+	var daily_snapshot: Dictionary = game_state.get_daily_claim().duplicate(true)
+	var coins_before_daily: int = int(game_state.get_currency("bubble_coin"))
+	(aquarium.get_node("%DailyFoodButton") as Button).pressed.emit()
+	_expect(game_state.get_daily_claim() == daily_snapshot, "Daily unlimited-food prompt leaves the legacy claim date unchanged")
+	_expect(int(game_state.get_inventory_count("food_basic")) == before_food and int(game_state.get_currency("bubble_coin")) == coins_before_daily, "Daily unlimited-food prompt changes neither inventory nor currency")
+	_expect(str((aquarium.get_node("%MessageLabel") as Label).text) == "飼料已無限", "Daily unlimited-food prompt shows the approved message")
+	(aquarium.get_node("%ShopButton") as Button).pressed.emit()
+	var shop_panel: Control = aquarium.get_node("%ShopPanel") as Control
+	var shop_food_label: Label = shop_panel.get_node("%FoodInfoLabel") as Label
+	var shop_food_button: Button = shop_panel.get_node("%BuyFoodButton") as Button
+	_expect(shop_panel.visible and shop_food_label.text.contains("∞") and shop_food_label.text.contains("飼料無限") and shop_food_button.disabled, "Android Aquarium shop displays unlimited food with buying disabled")
+	_expect(not ShopSystem.buy_item("food_basic"), "Android shop transaction rejects food purchases")
+	_expect(int(game_state.get_inventory_count("food_basic")) == before_food and int(game_state.get_currency("bubble_coin")) == coins_before_daily, "Rejected Android shop purchase preserves inventory and currency")
+	(shop_panel.get_node("%CloseShopButton") as Button).pressed.emit()
+	_expect(not shop_panel.visible, "Shop closes after the unlimited-food purchase check")
 	_expect(bool(save_manager.save_game()), "Aquarium operation saves through the isolated path")
 	_expect(_saved_payload_is_valid(), "Saved JSON can be reopened from the isolated path")
 	var saved: Variant = JSON.parse_string(FileAccess.get_file_as_string(save_manager.get_save_path()))
 	if saved is Dictionary:
 		var saved_inventory: Dictionary = saved.get("inventory", {}) as Dictionary
-		_expect(int(saved_inventory.get("food_basic", -1)) == int(game_state.get_inventory_count("food_basic")), "Saved JSON retains the food count")
+		_expect(int(saved_inventory.get("food_basic", -1)) == before_food, "Saved JSON preserves the legacy food_basic field unchanged")
 	_finish()
 
 
@@ -158,7 +177,7 @@ func _finish() -> void:
 			exit_code = 1
 		save_manager.use_production_save_path()
 	if exit_code == 0:
-		print("ANDROID_SCENE_ACCEPTANCE_OK scenes=5 ui_actions=13 production_boot=true isolated_save=true")
+		print("ANDROID_SCENE_ACCEPTANCE_OK scenes=5 ui_actions=16 production_boot=true isolated_save=true")
 	else:
 		for failure in failures:
 			push_error("ANDROID_SCENE_ACCEPTANCE_FAILURE: %s" % failure)
