@@ -340,32 +340,88 @@ func _run() -> void:
 	_expect(GameState.get_inventory_count("food_basic") == inventory_before_duplicate_tap, "Duplicate world input does not spend food twice")
 	aquarium.call("_set_pet_info_open", false)
 	await get_tree().create_timer(0.4).timeout
-	var panel_drop: Dictionary = FoodDropSystem.drop_food((aquarium.get_node("%ActorAnchor") as Node2D).global_position + Vector2(120.0, 20.0))
+	var panel_actors_ready: bool = false
+	while not panel_actors_ready:
+		panel_actors_ready = true
+		for pet_id in GameState.get_active_pet_ids():
+			var panel_actor: Node2D = (aquarium.get("actors_by_id") as Dictionary).get(pet_id) as Node2D
+			if panel_actor == null or not bool(panel_actor.call("can_accept_food")):
+				panel_actors_ready = false
+				break
+		if not panel_actors_ready:
+			await get_tree().process_frame
+	_expect(panel_actors_ready, "All three actors can accept food before the panel-preservation drop")
+	var panel_water: Rect2 = aquarium.get("active_water_rect")
+	var panel_marker_half_size: Vector2 = Vector2(16.0, 16.0)
+	var panel_drop_candidates: Array[Vector2] = [
+		panel_water.position + panel_marker_half_size,
+		Vector2(panel_water.end.x - panel_marker_half_size.x, panel_water.position.y + panel_marker_half_size.y),
+		Vector2(panel_water.position.x + panel_marker_half_size.x, panel_water.end.y - panel_marker_half_size.y),
+		panel_water.end - panel_marker_half_size,
+	]
+	var panel_drop_position: Vector2 = panel_water.get_center()
+	var panel_drop_clearance: float = -1.0
+	for candidate_position in panel_drop_candidates:
+		var candidate_marker_rect: Rect2 = Rect2(candidate_position - panel_marker_half_size, panel_marker_half_size * 2.0)
+		var candidate_clearance: float = INF
+		var candidate_has_no_contact: bool = true
+		for pet_id in GameState.get_active_pet_ids():
+			var candidate_actor: Node2D = (aquarium.get("actors_by_id") as Dictionary).get(pet_id) as Node2D
+			if candidate_actor == null:
+				candidate_has_no_contact = false
+				break
+			candidate_clearance = minf(candidate_clearance, candidate_actor.global_position.distance_to(candidate_position))
+			var candidate_body_rect: Rect2 = candidate_actor.call("get_visual_body_rect_global")
+			if candidate_body_rect.intersects(candidate_marker_rect):
+				candidate_has_no_contact = false
+		if candidate_has_no_contact and candidate_clearance > panel_drop_clearance:
+			panel_drop_position = candidate_position
+			panel_drop_clearance = candidate_clearance
+	_expect(panel_drop_clearance >= 0.0, "Panel-preservation drop point is remote from every visible actor body")
+	var panel_drop: Dictionary = FoodDropSystem.drop_food(panel_drop_position)
 	var panel_drop_token: String = str(panel_drop.get("token_id", ""))
+	_expect(not panel_drop_token.is_empty(), "Panel-preservation food drop reserves one token")
 	aquarium.call("_update_food_drops", 0.0)
-	var actor_instances_before_panels: Dictionary = {}
-	var actor_layout_before_panels: Dictionary = {}
-	var panel_target_pet_id: String = ""
+	var panel_target_pet_id: String = str((aquarium.get("food_claims") as Dictionary).get(panel_drop_token, ""))
+	var panel_claim_actor: Node2D = (aquarium.get("actors_by_id") as Dictionary).get(panel_target_pet_id) as Node2D
+	var panel_marker: Control = (aquarium.get("food_drop_visuals") as Dictionary).get(panel_drop_token) as Control
+	var panel_actor_diagnostics: Array[String] = []
 	for pet_id in GameState.get_active_pet_ids():
 		var panel_actor: Node2D = (aquarium.get("actors_by_id") as Dictionary).get(pet_id) as Node2D
+		panel_actor_diagnostics.append("%s:ready=%s state=%s target=%s hunger=%d" % [
+			pet_id,
+			str(panel_actor != null and bool(panel_actor.call("can_accept_food"))),
+			"missing" if panel_actor == null else str(panel_actor.get("behavior_state")),
+			"missing" if panel_actor == null else str(panel_actor.get("food_drop_id")),
+			int(GameState.get_pet(pet_id).get("hunger", -1)),
+		])
+	print("G1 panel-preservation claim diagnostic: token=%s target_pet=%s claims=%s drops=%s actors=%s" % [
+		panel_drop_token,
+		panel_target_pet_id,
+		str(aquarium.get("food_claims")),
+		str(GameState.get_food_drops()),
+		str(panel_actor_diagnostics),
+	])
+	var panel_claim_established: bool = not panel_target_pet_id.is_empty() and panel_claim_actor != null
+	panel_claim_established = panel_claim_established and str(panel_claim_actor.get("food_drop_id")) == panel_drop_token
+	panel_claim_established = panel_claim_established and str(panel_claim_actor.get("behavior_state")) == "approach_food"
+	panel_claim_established = panel_claim_established and panel_marker != null
+	_expect(panel_claim_established, "Panel-preservation drop starts a real chase with its target established before snapshot")
+	var actor_instances_before_panels: Dictionary = {}
+	var actor_layout_before_panels: Dictionary = {}
+	for pet_id in GameState.get_active_pet_ids():
+		var panel_actor: Node2D = (aquarium.get("actors_by_id") as Dictionary).get(pet_id) as Node2D
+		var panel_actor_food_drop_id: String = str(panel_actor.get("food_drop_id"))
+		var panel_actor_world_target: Vector2 = actor_anchor.to_global(panel_actor.get("roam_target"))
 		actor_instances_before_panels[pet_id] = int(panel_actor.get_instance_id())
 		actor_layout_before_panels[pet_id] = {
 			"world_position": panel_actor.global_position,
-			"world_target": actor_anchor.to_global(panel_actor.get("roam_target")),
+			"world_target": panel_actor_world_target,
+			"food_target": panel_actor_world_target if panel_actor_food_drop_id == panel_drop_token else Vector2.ZERO,
 			"pet_id": str(panel_actor.get("pet_id")),
 			"behavior_state": str(panel_actor.get("behavior_state")),
-			"food_drop_id": str(panel_actor.get("food_drop_id")),
+			"food_drop_id": panel_actor_food_drop_id,
 		}
-		if panel_target_pet_id.is_empty() and str(panel_actor.get("behavior_state")) == "approach_food" and not str(panel_actor.get("food_drop_id")).is_empty():
-			panel_target_pet_id = pet_id
-	if panel_target_pet_id.is_empty() and not panel_drop_token.is_empty():
-		for pet_id in GameState.get_active_pet_ids():
-			var panel_actor: Node2D = (aquarium.get("actors_by_id") as Dictionary).get(pet_id) as Node2D
-			if bool(panel_actor.call("can_accept_food")):
-				panel_target_pet_id = pet_id
-				panel_actor.call("set_food_target", panel_drop_token, actor_anchor.to_local(Vector2(float(panel_drop.get("x", 0.0)), float(panel_drop.get("y", 0.0)))))
-				(aquarium.get("food_claims") as Dictionary)[panel_drop_token] = pet_id
-				break
 	var actions_before_panels: Dictionary = aquarium.get("last_action_time_by_name") as Dictionary
 	actions_before_panels["shop"] = -999999.0
 	actions_before_panels["log_toggle"] = -999999.0
@@ -384,6 +440,7 @@ func _run() -> void:
 		info_open_preserved_world = info_open_preserved_world and str(chase_actor.get("food_drop_id")) == str(before_state.get("food_drop_id"))
 		info_open_preserved_world = info_open_preserved_world and chase_actor.global_position.distance_to(before_state.get("world_position")) <= 0.5
 		info_open_preserved_world = info_open_preserved_world and actor_anchor.to_global(chase_actor.get("roam_target")).distance_to(before_state.get("world_target")) <= 0.5
+		info_open_preserved_world = info_open_preserved_world and actor_anchor.to_global(chase_actor.get("roam_target")).distance_to(before_state.get("food_target")) <= 0.5
 		if not info_open_preserved_world:
 			print("G1 panel-open preservation diagnostic: pet=%s actor=%s before=%s after_position=%s after_target=%s" % [
 				panel_target_pet_id,
@@ -398,15 +455,20 @@ func _run() -> void:
 	var info_close_preserved_world: bool = not panel_target_pet_id.is_empty()
 	if not panel_target_pet_id.is_empty():
 		var chase_actor_before_close: Node2D = (aquarium.get("actors_by_id") as Dictionary).get(panel_target_pet_id) as Node2D
+		var before_state: Dictionary = actor_layout_before_panels[panel_target_pet_id]
 		var close_position_before: Vector2 = chase_actor_before_close.global_position
 		var close_target_before: Vector2 = actor_anchor.to_global(chase_actor_before_close.get("roam_target"))
 		aquarium.call("_set_pet_info_open", false)
 		var chase_actor_after_close: Node2D = (aquarium.get("actors_by_id") as Dictionary).get(panel_target_pet_id) as Node2D
 		info_close_preserved_world = not bool(aquarium.get("pet_info_open")) and chase_actor_after_close != null
 		info_close_preserved_world = info_close_preserved_world and int(chase_actor_after_close.get_instance_id()) == int(actor_instances_before_panels[panel_target_pet_id])
+		info_close_preserved_world = info_close_preserved_world and str(chase_actor_after_close.get("pet_id")) == str(before_state.get("pet_id"))
+		info_close_preserved_world = info_close_preserved_world and str(chase_actor_after_close.get("behavior_state")) == str(before_state.get("behavior_state"))
+		info_close_preserved_world = info_close_preserved_world and str(chase_actor_after_close.get("food_drop_id")) == str(before_state.get("food_drop_id"))
 		info_close_preserved_world = info_close_preserved_world and chase_actor_after_close.global_position.distance_to(close_position_before) <= 0.5
 		info_close_preserved_world = info_close_preserved_world and actor_anchor.to_global(chase_actor_after_close.get("roam_target")).distance_to(close_target_before) <= 0.5
-	_expect(info_close_preserved_world, "Closing pet details preserves live actor positions and current target")
+		info_close_preserved_world = info_close_preserved_world and actor_anchor.to_global(chase_actor_after_close.get("roam_target")).distance_to(before_state.get("food_target")) <= 0.5
+	_expect(info_close_preserved_world, "Closing pet details preserves the actor, position, food target and behavior phase")
 	await get_tree().create_timer(0.4).timeout
 	var log_was_open: bool = false
 	if OS.is_debug_build():
