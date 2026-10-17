@@ -102,6 +102,30 @@ func _run() -> void:
 			card_art_scale_integer = card_art_scale_integer and card_style.texture_margin_left == 12.0 and card_style.texture_margin_top == 12.0
 			card_art_scale_integer = card_art_scale_integer and card_style.texture_margin_right == 12.0 and card_style.texture_margin_bottom == 12.0
 			_expect(card_art_scale_integer, "Nursery egg art is integer-scaled nearest-neighbor and the approved card uses 12px 9-slice margins")
+			var nursery_pixel_layouts: Array[Dictionary] = [
+				{"name": "1280x720-160dpi", "viewport": Vector2(1280.0, 720.0), "safe": Rect2(Vector2(24.0, 12.0), Vector2(1232.0, 696.0)), "dpi": 160.0},
+				{"name": "1280x720-320dpi", "viewport": Vector2(1280.0, 720.0), "safe": Rect2(Vector2(24.0, 12.0), Vector2(1232.0, 696.0)), "dpi": 320.0},
+				{"name": "1280x591-160dpi", "viewport": Vector2(1280.0, 591.0), "safe": Rect2(Vector2.ZERO, Vector2(1280.0, 591.0)), "dpi": 160.0},
+				{"name": "1280x591-320dpi", "viewport": Vector2(1280.0, 591.0), "safe": Rect2(Vector2.ZERO, Vector2(1280.0, 591.0)), "dpi": 320.0},
+				{"name": "1600x720-160dpi", "viewport": Vector2(1600.0, 720.0), "safe": Rect2(Vector2(24.0, 12.0), Vector2(1552.0, 696.0)), "dpi": 160.0},
+				{"name": "1600x720-320dpi", "viewport": Vector2(1600.0, 720.0), "safe": Rect2(Vector2(24.0, 12.0), Vector2(1552.0, 696.0)), "dpi": 320.0},
+			]
+			var nursery_physical_scales_integer: bool = true
+			for pixel_case in nursery_pixel_layouts:
+				var pixel_viewport: Vector2 = pixel_case["viewport"]
+				var pixel_dpi: float = float(pixel_case["dpi"])
+				var pixel_output_scale: Vector2 = Vector2(pixel_dpi / 160.0, pixel_dpi / 160.0)
+				var pixel_touch_target: float = 56.0 * pixel_dpi / 160.0
+				nursery_ui.call("_layout_ui", pixel_viewport, pixel_case["safe"], pixel_touch_target, pixel_viewport * pixel_output_scale)
+				var physical_card_scale_x: float = active_nursery_button.custom_minimum_size.x * pixel_output_scale.x / float(card_style.texture.get_width())
+				var physical_card_scale_y: float = active_nursery_button.custom_minimum_size.y * pixel_output_scale.y / float(card_style.texture.get_height())
+				var physical_egg_scale_x: float = active_nursery_icon.custom_minimum_size.x * pixel_output_scale.x / float(active_nursery_icon.texture.get_width())
+				var physical_egg_scale_y: float = active_nursery_icon.custom_minimum_size.y * pixel_output_scale.y / float(active_nursery_icon.texture.get_height())
+				nursery_physical_scales_integer = nursery_physical_scales_integer and is_equal_approx(physical_card_scale_x, roundf(physical_card_scale_x)) and is_equal_approx(physical_card_scale_y, roundf(physical_card_scale_y))
+				nursery_physical_scales_integer = nursery_physical_scales_integer and is_equal_approx(physical_egg_scale_x, roundf(physical_egg_scale_x)) and is_equal_approx(physical_egg_scale_y, roundf(physical_egg_scale_y))
+				nursery_physical_scales_integer = nursery_physical_scales_integer and active_nursery_button.custom_minimum_size.x >= 256.0 and active_nursery_button.custom_minimum_size.y >= 320.0 and active_nursery_icon.texture_filter == CanvasItem.TEXTURE_FILTER_NEAREST
+			_expect(nursery_physical_scales_integer, "Egg and 9-slice card render at integer physical-pixel scales with nearest sampling across three aspects at 160/320dpi")
+			nursery_ui.call("_apply_responsive_layout")
 			_expect(str((active_nursery_card.get("progress") as Label).text).contains("0 / 10") and str((active_nursery_card.get("hint") as Label).text).contains("點擊蛋殼"), "Each Nursery card displays its click progress and hatch hint")
 			var active_card_rect: Rect2 = active_nursery_button.get_global_rect()
 			var progress_rect: Rect2 = (active_nursery_card.get("progress") as Label).get_global_rect()
@@ -140,6 +164,20 @@ func _run() -> void:
 			var name_error: Label = nursery_ui.get("name_error_label") as Label
 			var name_confirm: Button = nursery_ui.get("name_confirm_button") as Button
 			_expect(name_overlay.visible and str((active_nursery_card.get("icon") as TextureRect).texture.resource_path).ends_with("egg_hatch_burst_v2_64.png"), "Nursery plays the burst frame and opens its naming panel")
+			await get_tree().create_timer(0.55).timeout
+			var nursery_ime_request_seen: bool = false
+			var nursery_ime_height_seen: bool = false
+			var nursery_ime_events_info_only: bool = true
+			for ime_entry in RuntimeLogger.get_logs():
+				if ime_entry is Dictionary:
+					var ime_message: String = str((ime_entry as Dictionary).get("message", ""))
+					if ime_message.contains("IME keyboard") and ime_message.contains("nursery_name"):
+						nursery_ime_events_info_only = nursery_ime_events_info_only and str((ime_entry as Dictionary).get("level", "")) == "INFO"
+						nursery_ime_request_seen = nursery_ime_request_seen or ime_message.begins_with("IME keyboard request field=nursery_name time_msec=")
+						nursery_ime_height_seen = nursery_ime_height_seen or ime_message.begins_with("IME keyboard height field=nursery_name request_msec=") and ime_message.contains(" sample_msec=") and ime_message.contains(" height=")
+			if not nursery_ime_request_seen or not nursery_ime_height_seen or not nursery_ime_events_info_only:
+				print("G1 nursery IME diagnostic request=%s height=%s info_only=%s logs=%s" % [str(nursery_ime_request_seen), str(nursery_ime_height_seen), str(nursery_ime_events_info_only), RuntimeLogger.get_log_text()])
+			_expect(nursery_ime_request_seen and nursery_ime_height_seen and nursery_ime_events_info_only, "Nursery IME request logs its field/time and the 0.5s keyboard-height sample at INFO level")
 			name_confirm.pressed.emit()
 			_expect(GameState.get_pet_ids().size() == egg_count_before_name and name_error.visible, "Empty Nursery name is rejected without creating a pet")
 			name_edit.text = "測試新朋友"
@@ -520,38 +558,61 @@ func _run() -> void:
 	var more_panel: PanelContainer = aquarium.get_node("%MorePanel") as PanelContainer
 	var more_items: GridContainer = aquarium.get_node("%MoreItems") as GridContainer
 	var more_items_scroll: ScrollContainer = more_panel.get_node("MoreContent/MoreItemsScroll") as ScrollContainer
+	var feedback_container: Control = aquarium.get_node("%FeedbackContainer") as Control
 	more_button.pressed.emit()
 	var more_menu_complete: bool = more_panel.visible and more_items.get_child_count() == 7 and more_items_scroll.get_child(0) == more_items
+	more_menu_complete = more_menu_complete and more_items.columns == 7
 	var more_menu_texts: Array[String] = ["餅乾", "清潔", "藥水", "進化", "商店", "每日飼料", "開啟日誌"]
 	for menu_node in more_items.get_children():
 		if menu_node is Button:
 			var menu_button: Button = menu_node as Button
 			var menu_index: int = more_items.get_children().find(menu_node)
-			more_menu_complete = more_menu_complete and menu_button.custom_minimum_size.x >= 48.0 and menu_button.custom_minimum_size.y >= 48.0
+			more_menu_complete = more_menu_complete and menu_button.custom_minimum_size.x >= 112.0 and menu_button.custom_minimum_size.y >= 112.0
 			if menu_index < more_menu_texts.size():
 				more_menu_complete = more_menu_complete and menu_button.text == more_menu_texts[menu_index]
 	var more_safe_layouts: Array[Dictionary] = [
-		{"name": "16:9", "viewport": viewport_16_9, "safe": safe_16_9},
-		{"name": "19.5:9", "viewport": viewport_19_5_9, "safe": safe_19_5_9},
-		{"name": "20:9", "viewport": Vector2(2400.0, 1080.0), "safe": safe_20_9},
-		{"name": "1280x591", "viewport": jack_viewport, "safe": jack_safe},
+		{"name": "1280x720-160dpi", "viewport": viewport_16_9, "safe": safe_16_9, "touch": 56.0},
+		{"name": "1280x720-320dpi", "viewport": viewport_16_9, "safe": safe_16_9, "touch": 112.0},
+		{"name": "19.5:9", "viewport": viewport_19_5_9, "safe": safe_19_5_9, "touch": 112.0},
+		{"name": "20:9", "viewport": Vector2(2400.0, 1080.0), "safe": safe_20_9, "touch": 112.0},
+		{"name": "1280x591-160dpi", "viewport": jack_viewport, "safe": jack_safe, "touch": 56.0},
+		{"name": "1280x591-320dpi", "viewport": jack_viewport, "safe": jack_safe, "touch": 112.0},
+		{"name": "1600x720-160dpi", "viewport": Vector2(1600.0, 720.0), "safe": Rect2(Vector2(24.0, 12.0), Vector2(1552.0, 696.0)), "touch": 56.0},
+		{"name": "1600x720-320dpi", "viewport": Vector2(1600.0, 720.0), "safe": Rect2(Vector2(24.0, 12.0), Vector2(1552.0, 696.0)), "touch": 112.0},
 	]
-	var more_safe_geometry: bool = true
 	for layout_case in more_safe_layouts:
 		var layout_safe: Rect2 = layout_case["safe"]
-		aquarium.call("_layout_ui", layout_case["viewport"], layout_safe, 112.0)
-		more_safe_geometry = more_safe_geometry and _control_inside_safe(more_panel, layout_safe)
-		more_safe_geometry = more_safe_geometry and _control_inside_safe(primary_action_bar, layout_safe)
-		more_safe_geometry = more_safe_geometry and _control_inside_safe(aquarium.get_node("%PetRoster") as Control, layout_safe)
-		more_safe_geometry = more_safe_geometry and _control_inside_safe(status_scroll, layout_safe)
+		var touch_target: float = float(layout_case["touch"])
+		var layout_geometry_ok: bool = true
+		aquarium.call("_layout_ui", layout_case["viewport"], layout_safe, touch_target)
+		await get_tree().process_frame
+		layout_geometry_ok = layout_geometry_ok and _control_inside_safe(more_panel, layout_safe)
+		layout_geometry_ok = layout_geometry_ok and _control_inside_safe(primary_action_bar, layout_safe)
+		layout_geometry_ok = layout_geometry_ok and _control_inside_safe(aquarium.get_node("%PetRoster") as Control, layout_safe)
+		layout_geometry_ok = layout_geometry_ok and _control_inside_safe(status_scroll, layout_safe)
+		var more_rect: Rect2 = more_panel.get_global_rect()
+		var scroll_rect: Rect2 = more_items_scroll.get_global_rect()
+		var action_rect: Rect2 = primary_action_bar.get_global_rect()
+		layout_geometry_ok = layout_geometry_ok and scroll_rect.size.y >= 112.0 and not more_rect.intersects(action_rect)
 		for action_node in primary_action_bar.get_children():
 			if action_node is Button:
 				var action_button: Button = action_node as Button
-				more_safe_geometry = more_safe_geometry and action_button.custom_minimum_size.x >= 112.0 and action_button.custom_minimum_size.y >= 112.0
+				layout_geometry_ok = layout_geometry_ok and action_button.custom_minimum_size.x >= 112.0 and action_button.custom_minimum_size.y >= 112.0
 		for menu_node in more_items.get_children():
 			if menu_node is Button:
-				more_safe_geometry = more_safe_geometry and (menu_node as Button).custom_minimum_size.x >= 112.0 and (menu_node as Button).custom_minimum_size.y >= 112.0
-	_expect(more_menu_complete and more_safe_geometry, "More menu exposes seven Traditional-Chinese scrollable controls and keeps the menu, nameplates, status and 112px touch targets inside safe bounds at all four aspects")
+				var menu_button: Button = menu_node as Button
+				var button_rect: Rect2 = menu_button.get_global_rect()
+				var fully_visible: bool = button_rect.position.x >= scroll_rect.position.x and button_rect.position.y >= scroll_rect.position.y
+				fully_visible = fully_visible and button_rect.end.x <= scroll_rect.end.x and button_rect.end.y <= scroll_rect.end.y
+				layout_geometry_ok = layout_geometry_ok and menu_button.custom_minimum_size.x >= 112.0 and menu_button.custom_minimum_size.y >= 112.0 and fully_visible
+		if not layout_geometry_ok:
+			print("G1 More matrix diagnostic case=%s panel=%s scroll=%s action=%s roster=%s targets=%s" % [str(layout_case["name"]), str(more_rect), str(scroll_rect), str(action_rect), str((aquarium.get_node("%PetRoster") as Control).get_global_rect()), str(more_items.get_children().map(func(node: Node) -> Rect2: return (node as Control).get_global_rect()))])
+		_expect(layout_geometry_ok, "More layout %s exposes every full-size row inside safe bounds without covering the four keys" % str(layout_case["name"]))
+	_expect(more_menu_complete, "More menu contains all seven readable Traditional-Chinese controls in one row")
+	var foremost_actor_z: int = actor_anchor.z_index
+	for z_actor in actors.values():
+		foremost_actor_z = maxi(foremost_actor_z, actor_anchor.z_index + (z_actor as Node2D).z_index)
+	_expect(more_panel.z_index > foremost_actor_z and feedback_container.z_index > foremost_actor_z and overlay_layer.z_index > foremost_actor_z, "More, feedback and modal layers render above every pet actor")
 	var more_back_food_count: int = GameState.get_food_drops().size()
 	var more_back: InputEventKey = InputEventKey.new()
 	more_back.pressed = true
@@ -578,6 +639,18 @@ func _run() -> void:
 	var rename_shield_active: bool = modal_input_shield.visible
 	var rename_focus_and_keyboard_request: bool = nickname_edit.has_focus() and rename_panel.visible and int(aquarium.get("rename_keyboard_request_count")) == keyboard_requests_before + 1
 	_expect(rename_focus_and_keyboard_request, "Rename opens focused with the virtual-keyboard request path exercised")
+	await get_tree().create_timer(0.55).timeout
+	var rename_ime_request_seen: bool = false
+	var rename_ime_height_seen: bool = false
+	var rename_ime_events_info_only: bool = true
+	for ime_entry in RuntimeLogger.get_logs():
+		if ime_entry is Dictionary:
+			var ime_message: String = str((ime_entry as Dictionary).get("message", ""))
+			if ime_message.contains("IME keyboard") and ime_message.contains("aquarium_rename"):
+				rename_ime_events_info_only = rename_ime_events_info_only and str((ime_entry as Dictionary).get("level", "")) == "INFO"
+				rename_ime_request_seen = rename_ime_request_seen or ime_message.begins_with("IME keyboard request field=aquarium_rename time_msec=")
+				rename_ime_height_seen = rename_ime_height_seen or ime_message.begins_with("IME keyboard height field=aquarium_rename request_msec=") and ime_message.contains(" sample_msec=") and ime_message.contains(" height=")
+	_expect(rename_ime_request_seen and rename_ime_height_seen and rename_ime_events_info_only, "Rename IME request logs its field/time and the 0.5s keyboard-height sample at INFO level")
 	var food_before_rename_touch: int = GameState.get_food_drops().size()
 	var rename_touch: InputEventScreenTouch = InputEventScreenTouch.new()
 	var rename_water_rect: Rect2 = aquarium.get("active_water_rect")
@@ -761,6 +834,7 @@ func _run() -> void:
 	_expect(GameState.get_inventory_count("food_basic") == inventory_before_duplicate_tap, "Paired input and separate drops leave the legacy quantity unchanged")
 	await _run_full_food_fairness_case(aquarium, actor_anchor, actors)
 	await _run_sunk_food_decay_case(aquarium, actor_anchor, actors)
+	await _run_full_ten_food_feedback_case(aquarium, actor_anchor, actors)
 	aquarium.call("_set_pet_info_open", false)
 	await get_tree().create_timer(0.4).timeout
 	var panel_actors_ready: bool = false
@@ -1261,9 +1335,11 @@ func _run_sunk_food_decay_case(aquarium: Control, actor_anchor: Node2D, actors: 
 	var sunk_visual: Control = visuals.get(token_id) as Control
 	var no_hungry_claim: bool = not (aquarium.get("food_claims") as Dictionary).has(token_id)
 	_expect(sunk_visual != null and no_hungry_claim, "A sunk pellet remains visual for full pets without occupying a hungry claim")
+	var feedback_container: Control = aquarium.get_node("%FeedbackContainer") as Control
 	var full_actor: Node2D = actors.get(pet_ids[0]) as Node2D
 	var full_pet_state: String = ""
 	var refusal_bubble_found: bool = false
+	var refusal_bubble: Label = null
 	var full_pet_swims_to_food: bool = false
 	var original_full_actor_position: Vector2 = Vector2.ZERO
 	if full_actor != null and sunk_visual != null:
@@ -1280,12 +1356,27 @@ func _run_sunk_food_decay_case(aquarium: Control, actor_anchor: Node2D, actors: 
 		full_pet_state = str(full_actor.get("behavior_state"))
 		var ending_distance: float = full_actor.position.distance_to(full_food_target)
 		full_pet_swims_to_food = starting_distance > 10.0 and ending_distance < starting_distance
-		for child in (aquarium.get_node("%FoodDropContainer") as Control).get_children():
+		for child in (aquarium.get_node("%FeedbackContainer") as Control).get_children():
 			if child is Label and str((child as Label).text) == "吃飽了":
 				refusal_bubble_found = true
+				refusal_bubble = child as Label
 		if not full_pet_swims_to_food or full_pet_state != "full_food_refusal" or not refusal_bubble_found:
 			print("G1 full-food refusal diagnostic: token=%s start_distance=%.2f end_distance=%.2f state=%s target=%s reactions=%s bubble=%s" % [token_id, starting_distance, ending_distance, full_pet_state, str(full_actor.get("full_food_drop_id")), str((aquarium.get("full_food_reactions_by_token") as Dictionary).get(token_id, {})), str(refusal_bubble_found)])
-	_expect(full_pet_swims_to_food and full_pet_state == "full_food_refusal" and refusal_bubble_found, "Full pet swims to nearby food, says 吃飽了 and shakes its head")
+	var bubble_readable_over_actor: bool = false
+	if refusal_bubble != null and full_actor != null:
+		var refusal_rect: Rect2 = refusal_bubble.get_global_rect()
+		var refusal_body: Rect2 = full_actor.call("get_visual_body_rect_global")
+		var refusal_viewport: Rect2 = aquarium.get_viewport_rect()
+		var head_gap: float = refusal_body.position.y - refusal_rect.end.y
+		var body_gap: float = refusal_rect.position.y - refusal_body.end.y
+		var head_relative: bool = absf(refusal_rect.get_center().x - refusal_body.get_center().x) <= 1.0
+		var vertically_clear_of_body: bool = (head_gap >= 0.0 and head_gap <= 48.0) or (body_gap >= 0.0 and body_gap <= 48.0)
+		head_relative = head_relative and vertically_clear_of_body
+		var within_viewport: bool = _control_inside_safe(refusal_bubble, refusal_viewport)
+		bubble_readable_over_actor = head_relative and within_viewport and feedback_container.z_index > actor_anchor.z_index + full_actor.z_index
+		if not bubble_readable_over_actor:
+			print("G1 refusal-bubble diagnostic body=%s bubble=%s head_relative=%s in_bounds=%s feedback_z=%d anchor_z=%d actor_z=%d" % [str(refusal_body), str(refusal_rect), str(head_relative), str(within_viewport), feedback_container.z_index, actor_anchor.z_index, full_actor.z_index])
+	_expect(full_pet_swims_to_food and full_pet_state == "full_food_refusal" and refusal_bubble_found and bubble_readable_over_actor, "Full pet swims to nearby food, keeps its complete 吃飽了 bubble head-relative, in bounds and above actor art")
 	if full_actor != null:
 		full_actor.position = original_full_actor_position
 	await get_tree().create_timer(3.2).timeout
@@ -1303,6 +1394,118 @@ func _run_sunk_food_decay_case(aquarium: Control, actor_anchor: Node2D, actors: 
 			actor.call("refresh_pet")
 		_expect(int(GameState.get_pet(pet_id).get("hunger", -1)) == int((baseline_pets[pet_id] as Dictionary).get("hunger", -2)), "Sunk-food regression restores each pet's prior hunger")
 	SaveManager.save_game()
+
+
+func _run_full_ten_food_feedback_case(aquarium: Control, actor_anchor: Node2D, actors: Dictionary) -> void:
+	var pet_ids: Array[String] = GameState.get_active_pet_ids()
+	_expect(pet_ids.size() == 3 and GameState.get_food_drops().is_empty(), "Ten-token feedback regression starts with three pets and an empty food ledger")
+	if pet_ids.size() != 3 or not GameState.get_food_drops().is_empty():
+		return
+	var baseline_pets: Dictionary = {}
+	var actor_states: Dictionary = {}
+	var water: Rect2 = aquarium.get("active_water_rect")
+	for pet_index in range(pet_ids.size()):
+		var pet_id: String = pet_ids[pet_index]
+		var pet: Dictionary = GameState.get_pet(pet_id)
+		baseline_pets[pet_id] = pet.duplicate(true)
+		pet["hunger"] = 100
+		GameState.set_pet(pet_id, pet)
+		var actor: Node2D = actors.get(pet_id) as Node2D
+		if actor == null:
+			continue
+		actor_states[pet_id] = {
+			"position": actor.position,
+			"roam_target": actor.get("roam_target"),
+			"behavior_state": str(actor.get("behavior_state")),
+			"full_food_drop_id": str(actor.get("full_food_drop_id")),
+		}
+		var actor_point: Vector2 = Vector2(water.position.x + water.size.x * (0.2 + float(pet_index) * 0.3), water.position.y + water.size.y * 0.5)
+		actor.position = actor_anchor.to_local(actor_point)
+		actor.set("roam_target", actor.position)
+		actor.set("behavior_state", "idle_roam")
+		actor.set("full_food_drop_id", "")
+		actor.call("refresh_pet")
+
+	var food_quantity_before: int = GameState.get_inventory_count("food_basic")
+	var growth_before_by_pet: Dictionary = {}
+	for pet_id in pet_ids:
+		growth_before_by_pet[pet_id] = int(GameState.get_pet(pet_id).get("growth_exp", 0))
+	var token_ids: Array[String] = []
+	for drop_index in range(GameState.MAX_ACTIVE_FOOD_DROPS):
+		var drop_position: Vector2
+		if drop_index < pet_ids.size():
+			var assigned_actor: Node2D = actors.get(pet_ids[drop_index]) as Node2D
+			drop_position = assigned_actor.global_position
+		else:
+			var x_ratio: float = 0.08 + float(drop_index - pet_ids.size()) * 0.14
+			drop_position = Vector2(water.position.x + water.size.x * x_ratio, water.end.y - 40.0)
+		var drop: Dictionary = aquarium.call("_drop_basic_food", drop_position)
+		var token_id: String = str(drop.get("token_id", ""))
+		if not token_id.is_empty():
+			token_ids.append(token_id)
+	aquarium.call("_update_food_drops", 0.0)
+	_expect(token_ids.size() == 10 and GameState.get_food_drops().size() == 10 and (aquarium.get("food_drop_visuals") as Dictionary).size() == 10, "All ten full-pet food tokens and pellet visuals are present before refusal feedback")
+	for pet_id in pet_ids:
+		var actor: Node2D = actors.get(pet_id) as Node2D
+		if actor != null:
+			actor.position = actor.get("roam_target")
+			actor.call("_process", 0.05)
+	var feedback_container: Control = aquarium.get_node("%FeedbackContainer") as Control
+	var refusal_bubbles: Array[Label] = []
+	for feedback_child in feedback_container.get_children():
+		if feedback_child is Label and str((feedback_child as Label).text) == "吃飽了":
+			refusal_bubbles.append(feedback_child as Label)
+	var readable_bubble_count: int = 0
+	var pellets_not_obscured: bool = true
+	for bubble in refusal_bubbles:
+		var bubble_rect: Rect2 = bubble.get_global_rect()
+		var bubble_is_head_relative: bool = false
+		for pet_id in pet_ids:
+			var actor: Node2D = actors.get(pet_id) as Node2D
+			if actor == null:
+				continue
+			var body_rect: Rect2 = actor.call("get_visual_body_rect_global")
+			var top_gap: float = body_rect.position.y - bubble_rect.end.y
+			var bottom_gap: float = bubble_rect.position.y - body_rect.end.y
+			var x_aligned: bool = absf(bubble_rect.get_center().x - body_rect.get_center().x) <= bubble.size.x + 16.0
+			var vertically_clear_of_body: bool = (top_gap >= 0.0 and top_gap <= 48.0) or (bottom_gap >= 0.0 and bottom_gap <= 48.0)
+			bubble_is_head_relative = bubble_is_head_relative or x_aligned and vertically_clear_of_body
+			pellets_not_obscured = pellets_not_obscured and feedback_container.z_index > actor_anchor.z_index + actor.z_index
+		var bubble_in_bounds: bool = _control_inside_safe(bubble, aquarium.get_viewport_rect())
+		if bubble_is_head_relative and bubble_in_bounds and bubble.modulate.a >= 0.9:
+			readable_bubble_count += 1
+	for marker in (aquarium.get("food_drop_visuals") as Dictionary).values():
+		for bubble in refusal_bubbles:
+			pellets_not_obscured = pellets_not_obscured and not bubble.get_global_rect().intersects((marker as Control).get_global_rect())
+	if refusal_bubbles.size() != pet_ids.size() or readable_bubble_count != pet_ids.size() or not pellets_not_obscured:
+		print("G1 ten-full-feedback diagnostic bubbles=%d readable=%d pellets_clear=%s positions=%s ledger=%d reactions=%s actors=%s" % [refusal_bubbles.size(), readable_bubble_count, str(pellets_not_obscured), str(refusal_bubbles.map(func(bubble: Label) -> Rect2: return bubble.get_global_rect())), GameState.get_food_drops().size(), str(aquarium.get("full_food_reactions_by_token")), str(pet_ids.map(func(pet_id: String) -> String: return "%s:%s:%s" % [pet_id, str((actors.get(pet_id) as Node2D).get("behavior_state")), str((actors.get(pet_id) as Node2D).get("roam_target"))]))])
+	await get_tree().create_timer(0.2).timeout
+	var bubbles_stay_visible: bool = refusal_bubbles.size() == pet_ids.size()
+	for bubble in refusal_bubbles:
+		bubbles_stay_visible = bubbles_stay_visible and bubble.is_visible_in_tree() and bubble.modulate.a >= 0.9 and _control_inside_safe(bubble, aquarium.get_viewport_rect())
+	var all_pets_unchanged: bool = true
+	for pet_id in pet_ids:
+		var pet: Dictionary = GameState.get_pet(pet_id)
+		all_pets_unchanged = all_pets_unchanged and int(pet.get("hunger", 0)) == 100 and int(pet.get("growth_exp", 0)) == int(growth_before_by_pet[pet_id])
+	_expect(refusal_bubbles.size() == pet_ids.size() and readable_bubble_count == pet_ids.size() and bubbles_stay_visible and pellets_not_obscured and all_pets_unchanged, "After ten full-pet drops, all three head-following refusal labels stay readable above actors and clear of pellets in the 0–3s window with no settlement")
+	_expect(GameState.get_food_drops().size() == 10 and GameState.get_inventory_count("food_basic") == food_quantity_before, "Full ten-token refusal leaves the pending ledger and unlimited legacy quantity unchanged")
+	for token_id in token_ids:
+		GameState.resolve_food_drop(token_id)
+	aquarium.call("_update_food_drops", 0.0)
+	for bubble in refusal_bubbles:
+		bubble.queue_free()
+	for pet_id in pet_ids:
+		GameState.set_pet(pet_id, baseline_pets[pet_id])
+		var actor: Node2D = actors.get(pet_id) as Node2D
+		var state: Dictionary = actor_states.get(pet_id, {}) as Dictionary
+		if actor != null:
+			actor.position = state.get("position", actor.position)
+			actor.set("roam_target", state.get("roam_target", actor.get("roam_target")))
+			actor.set("behavior_state", str(state.get("behavior_state", "idle_roam")))
+			actor.set("full_food_drop_id", str(state.get("full_food_drop_id", "")))
+			actor.call("refresh_pet")
+	SaveManager.save_game()
+	await get_tree().process_frame
 
 
 func _run_food_geometry_regression(aquarium: Control, actor_anchor: Node2D, actors: Dictionary) -> void:

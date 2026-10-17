@@ -31,6 +31,7 @@ const FOOD_PELLET_TEXTURE: Texture2D = preload("res://assets/food/pellet_32.png"
 @onready var message_label: Label = %MessageLabel
 @onready var actor_anchor: Node2D = %ActorAnchor
 @onready var food_drop_container: Control = %FoodDropContainer
+@onready var feedback_container: Control = %FeedbackContainer
 @onready var shop_panel: Control = %ShopPanel
 @onready var coin_bubble_container: Control = %CoinBubbleContainer
 @onready var runtime_log_panel: Control = %RuntimeLogPanel
@@ -379,12 +380,12 @@ func _on_rename_pressed() -> void:
 func _request_rename_input_focus() -> void:
 	if not rename_modal_active or not is_instance_valid(nickname_edit):
 		return
-	NATIVE_TEXT_ENTRY.open_keyboard(nickname_edit)
+	NATIVE_TEXT_ENTRY.open_keyboard(nickname_edit, "aquarium_rename")
 	rename_keyboard_request_count += 1
 
 
 func _on_nickname_gui_input(event: InputEvent) -> void:
-	NATIVE_TEXT_ENTRY.handle_gui_input(event, nickname_edit)
+	NATIVE_TEXT_ENTRY.handle_gui_input(event, nickname_edit, "aquarium_rename")
 
 
 func _close_rename_panel() -> void:
@@ -747,9 +748,21 @@ func _layout_ui(viewport_size: Vector2, safe_rect: Rect2, touch_target_override:
 	top_panel.custom_minimum_size.x = maxf(1.0, status_scroll.size.x)
 	for status_button in [pet_info_button, rename_button]:
 		status_button.custom_minimum_size = Vector2(maxf(status_button.custom_minimum_size.x, touch_target), touch_target)
+	var more_content: VBoxContainer = more_panel.get_node("MoreContent") as VBoxContainer
+	var more_title: Label = more_panel.get_node("MoreContent/MoreTitle") as Label
+	var more_items_scroll: ScrollContainer = more_panel.get_node("MoreContent/MoreItemsScroll") as ScrollContainer
+	more_items.columns = maxi(1, more_items.get_child_count())
+	more_content.add_theme_constant_override("separation", 4)
+	more_title.add_theme_font_size_override("font_size", 16)
+	var menu_button_min_height: float = maxf(touch_target, 112.0)
 	for menu_node in more_items.get_children():
 		if menu_node is Button:
-			(menu_node as Button).custom_minimum_size = Vector2(maxf((menu_node as Button).custom_minimum_size.x, touch_target), touch_target)
+			var menu_button: Button = menu_node as Button
+			var menu_button_intrinsic_size: Vector2 = menu_button.get_minimum_size()
+			var menu_button_width: float = maxf(maxf(touch_target, 112.0), menu_button_intrinsic_size.x)
+			menu_button_min_height = maxf(menu_button_min_height, menu_button_intrinsic_size.y)
+			menu_button.custom_minimum_size = Vector2(menu_button_width, menu_button_min_height)
+	more_items_scroll.custom_minimum_size.y = menu_button_min_height
 	for rename_action in [rename_confirm_button, rename_cancel_button]:
 		rename_action.custom_minimum_size = Vector2(maxf(rename_action.custom_minimum_size.x, touch_target), touch_target)
 	var right_width: float = minf(maxf(1.0, safe_width - margin * 2.0), clampf(safe_width * 0.13, 160.0, 280.0))
@@ -758,19 +771,25 @@ func _layout_ui(viewport_size: Vector2, safe_rect: Rect2, touch_target_override:
 	_place_control(inventory_label, Rect2(inventory_rect.position + Vector2(16.0, 12.0), inventory_rect.size - Vector2(32.0, 24.0)))
 	var action_width_limit: float = maxf(1.0, safe_width - margin * 2.0)
 	var action_columns: int = 2 if action_width_limit >= touch_target * 2.0 + 28.0 else 1
+	var action_button_min_width: float = touch_target
+	var action_button_min_height: float = touch_target
+	if more_panel.visible and action_width_limit >= 4.0 * maxf(touch_target, 112.0) + 52.0:
+		action_columns = 4
+		action_button_min_width = maxf(touch_target, 112.0)
+		action_button_min_height = maxf(touch_target, 112.0)
 	action_bar.columns = action_columns
 	var action_child_count: int = action_bar.get_child_count()
 	var action_rows: int = ceili(float(action_child_count) / float(action_columns))
-	var action_min_width: float = touch_target * float(action_columns) + 12.0 * float(action_columns - 1) + 16.0
+	var action_min_width: float = action_button_min_width * float(action_columns) + 12.0 * float(action_columns - 1) + 16.0
 	var action_width: float = minf(action_width_limit, maxf(action_min_width, clampf(safe_width * 0.19, 216.0, 280.0)))
 	var action_height_limit: float = maxf(1.0, safe_height - margin * 2.0)
-	var action_content_height: float = float(action_rows) * touch_target + float(action_rows - 1) * 12.0 + 16.0
+	var action_content_height: float = float(action_rows) * action_button_min_height + float(action_rows - 1) * 12.0 + 16.0
 	var action_height: float = minf(action_content_height, action_height_limit)
 	var action_rect: Rect2 = Rect2(Vector2(safe_right - margin - action_width + 8.0, safe_bottom - margin - action_height + 8.0), Vector2(action_width - 16.0, action_height - 16.0))
 	var button_width: float = maxf(1.0, (action_rect.size.x - float(action_columns - 1) * 12.0) / float(action_columns))
 	for child in action_bar.get_children():
 		if child is Button:
-			(child as Button).custom_minimum_size = Vector2(button_width, touch_target)
+			(child as Button).custom_minimum_size = Vector2(button_width, action_button_min_height)
 	_place_control(action_bar, action_rect)
 	_place_control(action_backdrop, Rect2(action_bar.position - Vector2(8.0, 8.0), action_bar.size + Vector2(16.0, 16.0)))
 	var log_width: float = minf(360.0, maxf(320.0, safe_width * 0.28))
@@ -792,15 +811,13 @@ func _layout_ui(viewport_size: Vector2, safe_rect: Rect2, touch_target_override:
 	_place_control(message_label, Rect2(Vector2(message_left, message_top), Vector2(maxf(0.0, message_right - message_left), 38.0)))
 	message_label.visible = not more_panel.visible
 	if more_panel.visible:
-		var menu_left: float = maxf(safe_left + margin, status_rect.end.x + margin)
-		var menu_right: float = minf(safe_right - margin - right_width - margin, action_backdrop.position.x - margin)
-		var menu_available_width: float = maxf(1.0, menu_right - menu_left)
-		var menu_width: float = minf(menu_available_width, clampf(safe_width * 0.40, 280.0, 520.0))
-		var roster_bottom: float = pet_roster_backdrop.position.y + pet_roster_backdrop.size.y
-		var menu_height_limit: float = maxf(1.0, action_bar.position.y - roster_bottom - margin * 2.0)
-		var menu_height: float = minf(maxf(120.0, more_panel.get_combined_minimum_size().y), menu_height_limit)
+		var menu_left: float = safe_left + margin
+		var menu_available_width: float = maxf(1.0, safe_width - margin * 2.0)
+		var menu_required_width: float = more_items.get_combined_minimum_size().x + 16.0
+		var menu_width: float = minf(menu_available_width, maxf(280.0, menu_required_width))
+		var menu_height: float = maxf(touch_target, more_panel.get_combined_minimum_size().y)
 		var menu_x: float = menu_left + maxf(0.0, (menu_available_width - menu_width) * 0.5)
-		var menu_y: float = action_bar.position.y - margin - menu_height
+		var menu_y: float = action_bar.position.y - 8.0 - menu_height
 		_place_control(more_panel, Rect2(Vector2(menu_x, menu_y), Vector2(menu_width, menu_height)))
 	var left_panel_edge: float = safe_left
 	for left_panel in [status_backdrop, runtime_log_panel, shop_panel, more_panel]:
@@ -1248,7 +1265,8 @@ func _on_actor_food_refused(token_id: String, pet_id: String) -> void:
 	var bubble: Label = Label.new()
 	bubble.name = "FullFoodRefusalBubble"
 	bubble.text = "吃飽了"
-	bubble.size = Vector2(128.0, 38.0)
+	bubble.custom_minimum_size = Vector2(128.0, 60.0)
+	bubble.size = Vector2(128.0, 60.0)
 	bubble.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	bubble.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	bubble.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -1256,8 +1274,32 @@ func _on_actor_food_refused(token_id: String, pet_id: String) -> void:
 	bubble.add_theme_color_override("font_color", Color("fff6b0"))
 	bubble.add_theme_color_override("font_outline_color", Color("1c1838"))
 	bubble.add_theme_constant_override("outline_size", 3)
-	food_drop_container.add_child(bubble)
-	bubble.global_position = actor.global_position - Vector2(bubble.size.x / 2.0, 62.0)
+	feedback_container.add_child(bubble)
+	var body_rect: Rect2 = actor.call("get_visual_body_rect_global")
+	var viewport_rect: Rect2 = get_viewport_rect()
+	var bubble_y: float = body_rect.position.y - bubble.size.y - 40.0
+	if bubble_y < viewport_rect.position.y:
+		bubble_y = minf(body_rect.end.y + 8.0, viewport_rect.end.y - bubble.size.y)
+	var bubble_x: float = body_rect.get_center().x - bubble.size.x * 0.5
+	var horizontal_step: float = bubble.size.x + 8.0
+	var horizontal_offsets: Array[float] = [0.0, -horizontal_step, horizontal_step, -horizontal_step * 2.0, horizontal_step * 2.0]
+	for horizontal_offset in horizontal_offsets:
+		var candidate_x: float = clampf(bubble_x + horizontal_offset, viewport_rect.position.x, viewport_rect.end.x - bubble.size.x)
+		var candidate_rect: Rect2 = Rect2(Vector2(candidate_x, bubble_y), bubble.size)
+		var overlaps_feedback: bool = false
+		for existing_feedback in feedback_container.get_children():
+			if existing_feedback == bubble or not (existing_feedback is Label) or str((existing_feedback as Label).text) != "吃飽了":
+				continue
+			if candidate_rect.intersects((existing_feedback as Label).get_global_rect()):
+				overlaps_feedback = true
+				break
+		if not overlaps_feedback:
+			bubble_x = candidate_x
+			break
+	bubble.global_position = Vector2(
+		bubble_x,
+		clampf(bubble_y, viewport_rect.position.y, viewport_rect.end.y - bubble.size.y)
+	)
 	var tween: Tween = bubble.create_tween()
 	tween.set_parallel(true)
 	tween.tween_property(bubble, "global_position:y", bubble.global_position.y - 18.0, 1.1)

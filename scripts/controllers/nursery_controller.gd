@@ -14,6 +14,7 @@ const AQUARIUM_SCENE: String = "res://scenes/aquarium/aquarium.tscn"
 const EGG_REQUIRED_CLICK_FALLBACK: int = 10
 const CARD_MIN_WIDTH: float = 256.0
 const CARD_MIN_HEIGHT: float = 320.0
+const EGG_ART_BASE_SIZE: Vector2 = Vector2(128.0, 128.0)
 const NAME_MAX_LENGTH: int = 18
 
 var title_label: Label
@@ -436,11 +437,11 @@ func _open_naming_panel() -> void:
 	_sync_card_interaction()
 	_apply_responsive_layout()
 	name_edit.call_deferred("grab_focus")
-	NATIVE_TEXT_ENTRY.open_keyboard(name_edit)
+	NATIVE_TEXT_ENTRY.open_keyboard(name_edit, "nursery_name")
 
 
 func _on_name_edit_gui_input(event: InputEvent) -> void:
-	NATIVE_TEXT_ENTRY.handle_gui_input(event, name_edit)
+	NATIVE_TEXT_ENTRY.handle_gui_input(event, name_edit, "nursery_name")
 
 
 func _on_name_confirmed(_submitted_text: String = "") -> void:
@@ -543,7 +544,7 @@ func _get_safe_viewport_rect(viewport_size: Vector2) -> Rect2:
 	return result
 
 
-func _layout_ui(viewport_size: Vector2, safe_rect: Rect2, touch_target_override: float = -1.0) -> void:
+func _layout_ui(viewport_size: Vector2, safe_rect: Rect2, touch_target_override: float = -1.0, output_size_override: Vector2 = Vector2.ZERO) -> void:
 	var safe_left: float = maxf(0.0, safe_rect.position.x)
 	var safe_top: float = maxf(0.0, safe_rect.position.y)
 	var safe_right: float = minf(viewport_size.x, safe_rect.position.x + safe_rect.size.x)
@@ -551,6 +552,12 @@ func _layout_ui(viewport_size: Vector2, safe_rect: Rect2, touch_target_override:
 	var safe_width: float = maxf(1.0, safe_right - safe_left)
 	var safe_height: float = maxf(1.0, safe_bottom - safe_top)
 	var touch_target: float = touch_target_override if touch_target_override > 0.0 else DOS_STYLE.get_touch_target_height(viewport_size)
+	var output_size: Vector2 = output_size_override
+	if output_size.x <= 0.0 or output_size.y <= 0.0:
+		output_size = Vector2(DisplayServer.window_get_size())
+		if output_size.x <= 0.0 or output_size.y <= 0.0:
+			output_size = Vector2(DisplayServer.screen_get_size())
+	var output_scale: Vector2 = Vector2(output_size.x / viewport_size.x, output_size.y / viewport_size.y)
 	var margin: float = clampf(touch_target * 0.15, 12.0, 24.0)
 	var back_width: float = minf(maxf(152.0, touch_target * 1.8), maxf(112.0, safe_width * 0.42))
 	var header_y: float = safe_top + margin
@@ -568,8 +575,10 @@ func _layout_ui(viewport_size: Vector2, safe_rect: Rect2, touch_target_override:
 	egg_grid.columns = columns
 	for card_data in egg_cards_by_id.values():
 		var card: Button = (card_data as Dictionary).get("button") as Button
-		card.custom_minimum_size = Vector2(card_width, maxf(CARD_MIN_HEIGHT, touch_target * 2.55))
 		var icon: TextureRect = (card_data as Dictionary).get("icon") as TextureRect
+		var desired_card_size: Vector2 = Vector2(card_width, maxf(CARD_MIN_HEIGHT, touch_target * 2.55))
+		card.custom_minimum_size = _integer_pixel_art_size(Vector2(CARD_BACKGROUND.get_size()), desired_card_size, output_scale, true)
+		icon.custom_minimum_size = _integer_pixel_art_size(Vector2(icon.texture.get_size()), EGG_ART_BASE_SIZE, output_scale)
 		icon.pivot_offset = icon.size * 0.5
 	var panel_width: float = minf(520.0, maxf(1.0, safe_width - margin * 2.0))
 	name_edit.custom_minimum_size.x = maxf(112.0, panel_width - 48.0)
@@ -581,3 +590,11 @@ func _place_control(control: Control, target_rect: Rect2) -> void:
 	control.set_anchors_preset(Control.PRESET_TOP_LEFT)
 	control.position = target_rect.position
 	control.size = target_rect.size
+
+
+func _integer_pixel_art_size(source_size: Vector2, desired_size: Vector2, output_scale: Vector2, round_up: bool = false) -> Vector2:
+	if source_size.x <= 0.0 or source_size.y <= 0.0 or output_scale.x <= 0.0 or output_scale.y <= 0.0:
+		return desired_size
+	var required_scale: float = maxf(desired_size.x * output_scale.x / source_size.x, desired_size.y * output_scale.y / source_size.y)
+	var integer_scale: int = maxi(1, ceili(required_scale - 0.000001) if round_up else roundi(required_scale))
+	return Vector2(source_size.x * float(integer_scale) / output_scale.x, source_size.y * float(integer_scale) / output_scale.y)
