@@ -1,4 +1,4 @@
-"""Fail-closed checks for the five approved G1 textures and native tank source."""
+"""Fail-closed checks for approved G1 and ART-DOS-08 textures."""
 
 from __future__ import annotations
 
@@ -18,16 +18,27 @@ STAGE_PNGS = (
     ("assets/jellycats/normal_jellycat/stages/stage_4.png", 1497, "755995c6f8d5e6473542e164717ccedc73c2ff3d8af9816d8100fdd2cef6949d"),
     ("assets/jellycats/normal_jellycat/stages/stage_5.png", 1546, "5a69746a131eb172968350cc96fe5bf3a0a0c245cf8e0eab3636369bccfbec26"),
 )
+ART_DOS_08_PNGS = (
+    ("assets/eggs/egg_idle_v2_64.png", 523, "fda459a32249396391036188d49aa33b7890b60b7cbbf09661383638caef46e9", (64, 64)),
+    ("assets/eggs/egg_crack1_v2_64.png", 564, "a2351ee7099928371d64b54d71137c3610aa7d197b41cb65b00a85a0dd05e5b1", (64, 64)),
+    ("assets/eggs/egg_crack2_v2_64.png", 641, "45b5310a17c35b99a7b4b7dc98a8586143757b9660935aa2cad678e5aecacd75", (64, 64)),
+    ("assets/eggs/egg_crack3_v2_64.png", 712, "bf4a571f1100f3efde9a5b9d72b62b991f4848eda9f26567f1914753c42f6d6c", (64, 64)),
+    ("assets/eggs/egg_hatch_burst_v2_64.png", 726, "7eea6d9c56bb5c84bbda4b1b628d034dc8f95c8e0134e0db76c4608a68294ee0", (64, 64)),
+    ("assets/eggs/egg_wobble_sheet_v2_3x64.png", 846, "2deee34b3f4fff00daf8ed3898e13566573e20c77e6e5f6dd0f00581015b3da2", (192, 64)),
+    ("assets/nursery/nursery_card_bg_96x112.png", 567, "8a9540d1fe6301394553802a91d889274bcd1427b065b63bf91767d711e59737", (96, 112)),
+    ("assets/nursery/nursery_slot_empty_96x112.png", 579, "eec036ad12a4aa4ecaecb41a5d6a4371e98165ea8d88ffba8b1cb2576beecb27", (96, 112)),
+)
+APPROVED_TEXTURE_PNGS = tuple((path, size, digest, (64, 64)) for path, size, digest in STAGE_PNGS) + ART_DOS_08_PNGS
 NATIVE_TANK = (
     "scripts/ui/native_tank.gd",
-    2333,
-    "8acebc1f7cb9e375d72b851012b57d0a6388abaec8184f4baa22a31fe7a9c713",
+    3891,
+    "2564c94a15432dbf4ac506043eb4d818b52aad5036a8e4f9ecaaa8ea31a97a5b",
 )
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 GLOBAL_CLASSES = ("CareSystem", "CurrencySystem", "EggSystem", "HatchSystem", "EvolutionSystem")
 
 
-def _png_error(data: bytes, label: str) -> str | None:
+def _png_error(data: bytes, label: str, expected_dimensions: tuple[int, int]) -> str | None:
     if not data.startswith(PNG_SIGNATURE):
         return f"asset is not a PNG: {label}"
 
@@ -52,8 +63,8 @@ def _png_error(data: bytes, label: str) -> str | None:
             width, height, depth, color_type, compression, filtering, interlace = struct.unpack(
                 ">IIBBBBB", chunk_data
             )
-            if (width, height) != (64, 64):
-                return f"PNG dimensions are not 64x64: {label}"
+            if (width, height) != expected_dimensions:
+                return f"PNG dimensions are not {expected_dimensions[0]}x{expected_dimensions[1]}: {label}"
             if (depth, color_type, compression, filtering, interlace) != (8, 6, 0, 0, 0):
                 return f"PNG is not non-interlaced 8-bit RGBA: {label}"
             seen_header = True
@@ -78,14 +89,14 @@ def _png_error(data: bytes, label: str) -> str | None:
 def verify_asset_sources(
     root: Path, *, require_cooked: bool
 ) -> tuple[str | None, list[tuple[Path, str]]]:
-    """Validate approved source bytes and return each stage PNG's CTEX path."""
+    """Validate approved source bytes and return each approved texture's CTEX path."""
     imported: list[tuple[Path, str]] = []
-    for relative, expected_size, expected_sha in STAGE_PNGS:
+    for relative, expected_size, expected_sha, expected_dimensions in APPROVED_TEXTURE_PNGS:
         png = root / PurePosixPath(relative)
         if png.is_symlink() or not png.is_file():
-            return f"approved stage PNG is missing: {png}", []
+            return f"approved texture PNG is missing: {png}", []
         data = png.read_bytes()
-        error = _png_error(data, relative)
+        error = _png_error(data, relative, expected_dimensions)
         if error:
             return error, []
         if len(data) != expected_size:
@@ -112,8 +123,8 @@ def verify_asset_sources(
             return f"Godot PNG import output is missing or empty: {ctex}", []
         imported.append((png, ctex_relative.as_posix()))
 
-    if len(imported) != 5 or len({ctex for _, ctex in imported}) != 5:
-        return "expected five distinct approved stage CTEX remaps", []
+    if len(imported) != len(APPROVED_TEXTURE_PNGS) or len({ctex for _, ctex in imported}) != len(APPROVED_TEXTURE_PNGS):
+        return "expected one distinct CTEX remap per approved texture PNG", []
 
     native_path = root / PurePosixPath(NATIVE_TANK[0])
     if native_path.is_symlink() or not native_path.is_file():

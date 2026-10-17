@@ -2,6 +2,7 @@ extends Node
 
 const ISOLATED_SAVE_PATH: String = "user://jellycat_g1_gameplay_save.json"
 const DOS_STYLE = preload("res://scripts/ui/dos_style.gd")
+const NURSERY_SCENE: String = "res://scenes/nursery/nursery.tscn"
 
 var checks: int = 0
 var failures: Array[String] = []
@@ -48,7 +49,7 @@ func _run() -> void:
 				unhatched_slots_obvious = visible_roster.size() == 3
 				for slot_index in range(hatch_index, visible_roster.size()):
 					var unhatched_label: Label = visible_roster[slot_index].get_node("NameplateLabel") as Label
-					unhatched_slots_obvious = unhatched_slots_obvious and unhatched_label.text.contains("孵蛋") and not visible_roster[slot_index].disabled
+					unhatched_slots_obvious = unhatched_slots_obvious and unhatched_label.text.contains("育嬰室") and not visible_roster[slot_index].disabled
 				unhatched_slots_obvious = unhatched_slots_obvious and not (aquarium.get_node("%NurseryButton") as Button).disabled
 			_expect(unhatched_slots_obvious, "The Aquarium offers remaining starter eggs in the Nursery button and every empty nameplate slot")
 			_expect(aquarium != null and bool(aquarium.call("_select_next_unhatched_egg")), "Nursery selects the next unhatched egg by ID")
@@ -68,7 +69,97 @@ func _run() -> void:
 		_expect(bool(hatch_ui.get("route_pending")) and egg_button.disabled and GameState.get_pet_ids().size() == pet_count_after_hatch and GameState.get_active_egg_id() == next_egg_id and next_egg_clicks_after == next_egg_clicks_before, "A rapid post-hatch tap is blocked before it can advance the next egg")
 		_expect(hatch_hint.text == "新的水母喵加入水族箱了！", "Hatch completion displays its Traditional-Chinese status")
 		_expect(GameState.get_active_pet_ids().size() == hatch_index + 1, "Hatch UI adds pet %d through 10 player taps" % (hatch_index + 1))
+		var old_hatch_timer: Timer = hatch_ui.get("route_timer") as Timer
+		if is_instance_valid(old_hatch_timer):
+			old_hatch_timer.stop()
 		if hatch_index == 0:
+			var nursery_scene: PackedScene = load(NURSERY_SCENE) as PackedScene
+			_expect(nursery_scene != null, "Real Nursery scene loads")
+			var nursery_snapshot: Dictionary = GameState.to_save_dict()
+			var nursery_ui: Control = nursery_scene.instantiate() as Control
+			get_tree().root.add_child(nursery_ui)
+			await get_tree().process_frame
+			var nursery_cards: Dictionary = nursery_ui.get("egg_cards_by_id") as Dictionary
+			var egg_scroll: ScrollContainer = nursery_ui.get("egg_scroll") as ScrollContainer
+			var egg_grid: GridContainer = nursery_ui.get("egg_grid") as GridContainer
+			var nursery_root_nearest: bool = nursery_ui.texture_filter == CanvasItem.TEXTURE_FILTER_NEAREST
+			var scroll_wrapper: CenterContainer = egg_scroll.get_child(0) as CenterContainer if egg_scroll != null and egg_scroll.get_child_count() > 0 else null
+			_expect(egg_scroll != null and egg_grid != null and scroll_wrapper != null and scroll_wrapper.get_child(0) == egg_grid and nursery_root_nearest, "Nursery cards sit in a scroll container and the screen uses nearest texture sampling")
+			var nursery_egg_ids: Array[String] = []
+			for egg in GameState.get_nursery_eggs():
+				nursery_egg_ids.append(str(egg.get("egg_id", "")))
+			var active_nursery_egg_id: String = GameState.get_active_egg_id()
+			var other_nursery_egg_id: String = nursery_egg_ids[0] if nursery_egg_ids.size() > 0 and nursery_egg_ids[0] != active_nursery_egg_id else nursery_egg_ids[1]
+			_expect(nursery_cards.size() == 2 and nursery_cards.has(active_nursery_egg_id) and nursery_cards.has(other_nursery_egg_id), "Nursery lists each of the two remaining unhatched eggs")
+			var active_nursery_card: Dictionary = nursery_cards.get(active_nursery_egg_id, {}) as Dictionary
+			var active_nursery_button: Button = active_nursery_card.get("button") as Button
+			var active_nursery_icon: TextureRect = active_nursery_card.get("icon") as TextureRect
+			var card_style: StyleBoxTexture = active_nursery_button.get_theme_stylebox("normal") as StyleBoxTexture
+			var card_art_scale_integer: bool = active_nursery_icon.texture_filter == CanvasItem.TEXTURE_FILTER_NEAREST
+			card_art_scale_integer = card_art_scale_integer and active_nursery_icon.custom_minimum_size == Vector2(128.0, 128.0)
+			card_art_scale_integer = card_art_scale_integer and active_nursery_icon.texture.get_size() == Vector2(64.0, 64.0)
+			card_art_scale_integer = card_art_scale_integer and card_style != null and card_style.texture.resource_path.ends_with("nursery_card_bg_96x112.png")
+			card_art_scale_integer = card_art_scale_integer and card_style.texture_margin_left == 12.0 and card_style.texture_margin_top == 12.0
+			card_art_scale_integer = card_art_scale_integer and card_style.texture_margin_right == 12.0 and card_style.texture_margin_bottom == 12.0
+			_expect(card_art_scale_integer, "Nursery egg art is integer-scaled nearest-neighbor and the approved card uses 12px 9-slice margins")
+			_expect(str((active_nursery_card.get("progress") as Label).text).contains("0 / 10") and str((active_nursery_card.get("hint") as Label).text).contains("點擊蛋殼"), "Each Nursery card displays its click progress and hatch hint")
+			var active_card_rect: Rect2 = active_nursery_button.get_global_rect()
+			var progress_rect: Rect2 = (active_nursery_card.get("progress") as Label).get_global_rect()
+			var hint_rect: Rect2 = (active_nursery_card.get("hint") as Label).get_global_rect()
+			_expect(progress_rect.position.y >= active_card_rect.position.y + 8.0 and hint_rect.position.y >= progress_rect.end.y and hint_rect.end.y <= active_card_rect.end.y - 8.0, "Nursery progress and hint text stay separated and within the 9-slice card bounds")
+			active_nursery_button.pressed.emit()
+			active_nursery_button.pressed.emit()
+			var first_progress: int = int(GameState.get_nursery_egg(active_nursery_egg_id).get("current_clicks", 0))
+			var other_progress: int = int(GameState.get_nursery_egg(other_nursery_egg_id).get("current_clicks", 0))
+			var active_icon: TextureRect = active_nursery_card.get("icon") as TextureRect
+			_expect(first_progress == 2 and other_progress == 0 and GameState.get_active_egg_id() == active_nursery_egg_id and str(active_icon.texture.resource_path).ends_with("egg_crack1_v2_64.png") and str((active_nursery_card.get("progress") as Label).text).contains("2 / 10"), "Nursery advances only the tapped egg, updates its progress, and displays the matching crack frame")
+			var nursery_wobble_tweens: Dictionary = nursery_ui.get("wobble_tweens") as Dictionary
+			var active_wobble_tween: Tween = nursery_wobble_tweens.get(active_nursery_egg_id) as Tween
+			var wobble_frames_valid: bool = is_instance_valid(active_wobble_tween) and active_wobble_tween.is_running()
+			for wobble_frame_index in range(3):
+				nursery_ui.call("_set_wobble_frame", active_nursery_egg_id, wobble_frame_index)
+				var wobble_frame: AtlasTexture = active_icon.texture as AtlasTexture
+				wobble_frames_valid = wobble_frames_valid and wobble_frame != null and str(wobble_frame.atlas.resource_path).ends_with("egg_wobble_sheet_v2_3x64.png")
+				wobble_frames_valid = wobble_frames_valid and wobble_frame.region == Rect2(float(wobble_frame_index * 64), 0.0, 64.0, 64.0) and wobble_frame.filter_clip
+				nursery_ui.call("_render_egg_card", GameState.get_nursery_egg(active_nursery_egg_id))
+			_expect(wobble_frames_valid, "Each tap starts a light tween over the approved three-frame wobble sheet")
+			_expect(SaveManager.save_game(), "Nursery per-egg progress saves immediately")
+			GameState.reset_to_default()
+			var nursery_reload_ok: bool = SaveManager.load_game()
+			var reloaded_egg: Dictionary = GameState.get_nursery_egg(active_nursery_egg_id)
+			_expect(nursery_reload_ok and int(reloaded_egg.get("current_clicks", 0)) == 2 and GameState.get_active_egg_id() == active_nursery_egg_id, "Nursery click count and active egg survive a simulated restart")
+			var egg_count_before_name: int = GameState.get_pet_ids().size()
+			for _nursery_tap in range(8):
+				active_nursery_button.pressed.emit()
+			var other_nursery_card: Dictionary = nursery_cards.get(other_nursery_egg_id, {}) as Dictionary
+			(other_nursery_card.get("button") as Button).pressed.emit()
+			_expect(bool(nursery_ui.get("hatch_locked")) and int(GameState.get_nursery_egg(active_nursery_egg_id).get("current_clicks", 0)) == 10 and int(GameState.get_nursery_egg(other_nursery_egg_id).get("current_clicks", 0)) == 0 and GameState.get_pet_ids().size() == egg_count_before_name, "Tenth Nursery tap locks further egg input without hatching before naming")
+			await get_tree().create_timer(0.45).timeout
+			var name_overlay: Control = nursery_ui.get_node("NameOverlay") as Control
+			var name_edit: LineEdit = nursery_ui.get("name_edit") as LineEdit
+			var name_error: Label = nursery_ui.get("name_error_label") as Label
+			var name_confirm: Button = nursery_ui.get("name_confirm_button") as Button
+			_expect(name_overlay.visible and str((active_nursery_card.get("icon") as TextureRect).texture.resource_path).ends_with("egg_hatch_burst_v2_64.png"), "Nursery plays the burst frame and opens its naming panel")
+			name_confirm.pressed.emit()
+			_expect(GameState.get_pet_ids().size() == egg_count_before_name and name_error.visible, "Empty Nursery name is rejected without creating a pet")
+			name_edit.text = "測試新朋友"
+			name_confirm.pressed.emit()
+			var named_pet_id: String = GameState.get_selected_pet_id()
+			var named_pet: Dictionary = GameState.get_pet(named_pet_id)
+			var nursery_saved: Variant = JSON.parse_string(FileAccess.get_file_as_string(SaveManager.get_save_path()))
+			var saved_pets: Dictionary = nursery_saved.get("pets", {}) as Dictionary if nursery_saved is Dictionary else {}
+			var saved_named_pet: Dictionary = saved_pets.get(named_pet_id, {}) as Dictionary
+			var saved_nursery: Dictionary = nursery_saved.get("nursery", {}) as Dictionary if nursery_saved is Dictionary else {}
+			var saved_eggs: Array = saved_nursery.get("eggs", []) as Array
+			_expect(named_pet.get("nickname") == "測試新朋友" and GameState.get_nursery_egg(active_nursery_egg_id).is_empty() and GameState.get_active_egg_id() == other_nursery_egg_id, "Confirmed Nursery hatch creates the named pet and activates the next egg")
+			_expect(saved_named_pet.get("nickname") == "測試新朋友" and saved_eggs.size() == 1 and int((saved_eggs[0] as Dictionary).get("current_clicks", 0)) == 0, "New pet and next-egg progress persist immediately")
+			var nursery_timer: Timer = nursery_ui.get("route_timer") as Timer
+			if is_instance_valid(nursery_timer):
+				nursery_timer.stop()
+			GameState.set_data(nursery_snapshot)
+			SaveManager.save_game()
+			nursery_ui.queue_free()
+			await get_tree().process_frame
 			aquarium = aquarium_scene.instantiate() as Control
 			get_tree().root.add_child(aquarium)
 			var transition_food_count: int = GameState.get_food_drops().size()
@@ -104,12 +195,14 @@ func _run() -> void:
 	var modal_input_shield: ColorRect = aquarium.get_node("%ModalInputShield") as ColorRect
 	var native_tank_script: Script = load("res://scripts/ui/native_tank.gd") as Script
 	var stage_sprite: Sprite2D = null
+	var status_scroll: ScrollContainer = aquarium.get_node("%StatusScroll") as ScrollContainer
 	var current_pet_ids: Array[String] = GameState.get_active_pet_ids()
 	if not current_pet_ids.is_empty():
 		var first_stage_actor: Node = actors.get(current_pet_ids[0]) as Node
 		if first_stage_actor != null:
 			stage_sprite = first_stage_actor.get_node("%Sprite") as Sprite2D
 	_expect(water_background.get_script() == native_tank_script and water_background.mouse_filter == Control.MOUSE_FILTER_IGNORE, "Native DOS tank replaces the soft background and ignores input")
+	_expect(water_background.call("get_background_source_rect") == Rect2(4.0, 4.0, 312.0, 172.0) and water_background.call("get_background_content_size") == Vector2(624.0, 344.0), "Native tank draws the unmodified 320x180 source without its four-pixel frame at integer scale")
 	_expect(water_background.texture_filter == CanvasItem.TEXTURE_FILTER_NEAREST, "Approved integer-scaled ART-DOS-07 aquarium background uses nearest sampling")
 	_expect(stage_sprite != null and stage_sprite.texture_filter == CanvasItem.TEXTURE_FILTER_NEAREST, "Official 64-pixel stage art uses nearest-neighbor sampling")
 	_expect(overlay_layer.get_index() > action_layer.get_index() and overlay_layer.mouse_filter == Control.MOUSE_FILTER_IGNORE and modal_input_shield.mouse_filter == Control.MOUSE_FILTER_STOP and overlay_layer.get_index() + 1 == aquarium.get_child_count() and aquarium.get_node("%ShopPanel").get_parent() == overlay_layer and aquarium.get_node("%ShopPanel").get_index() > modal_input_shield.get_index(), "Modal shield and Shop sit above the HUD in input-safe order")
@@ -131,8 +224,65 @@ func _run() -> void:
 	_expect(roster_slots.size() == 3 and first_nameplate_label != null, "Aquarium creates three fixed pet-nameplate slots")
 	_expect(first_nameplate_label != null and first_nameplate_label.text == "%s · %s" % [first_pet_name, first_short_id] and not first_nameplate_label.clip_text and first_nameplate.tooltip_text == first_nameplate_label.text, "Pet nameplate renders the full nickname and ID without clipping")
 	var selected_actor_at_start: Node2D = actors.get(GameState.get_active_pet_ids()[0]) as Node2D
-	var first_selection_marker: Polygon2D = selected_actor_at_start.get_node_or_null("SelectedPetIndicator") as Polygon2D if selected_actor_at_start != null else null
-	_expect(first_selection_marker != null and first_selection_marker.visible and first_selection_marker.z_index > 0 and first_selection_marker.color.r > 0.9 and first_selection_marker.color.g > 0.6, "Selected pet has a bright, visible in-world indicator without changing its frozen sprite")
+	var first_selection_marker: Line2D = selected_actor_at_start.get_node_or_null("SelectedPetIndicator") as Line2D if selected_actor_at_start != null else null
+	var selected_body_rect: Rect2 = selected_actor_at_start.call("get_visual_body_rect_global") if selected_actor_at_start != null else Rect2()
+	var marker_bounds: Rect2 = _get_line_global_rect(first_selection_marker) if first_selection_marker != null else Rect2()
+	var selected_actor_is_top_layer: bool = selected_actor_at_start != null and selected_actor_at_start.z_index == 1
+	for pet_id in GameState.get_active_pet_ids():
+		var other_actor: Node2D = actors.get(pet_id) as Node2D
+		if other_actor != selected_actor_at_start:
+			selected_actor_is_top_layer = selected_actor_is_top_layer and other_actor.z_index < selected_actor_at_start.z_index
+	_expect(first_selection_marker != null and first_selection_marker.visible and first_selection_marker.z_index < 0 and first_selection_marker.closed and first_selection_marker.width <= 2.0 and first_selection_marker.default_color.a > 0.0 and first_selection_marker.default_color.a < 0.8 and first_selection_marker.global_position.y >= selected_body_rect.end.y + 3.0 and marker_bounds.size.x <= selected_body_rect.size.x * 0.8 and not marker_bounds.intersects(selected_body_rect) and selected_actor_is_top_layer, "Selected pet uses a thin outline below the visible feet, outside the body bounds, and renders above other pets")
+	var avoidance_snapshots: Dictionary = {}
+	var avoidance_water: Rect2 = aquarium.get("active_water_rect")
+	var avoidance_center_local: Vector2 = actor_anchor.to_local(avoidance_water.get_center())
+	for pet_id in GameState.get_active_pet_ids():
+		var avoidance_actor: Node2D = actors.get(pet_id) as Node2D
+		avoidance_snapshots[pet_id] = {
+			"position": avoidance_actor.position,
+			"roam_target": avoidance_actor.get("roam_target"),
+			"behavior_state": str(avoidance_actor.get("behavior_state")),
+		}
+		avoidance_actor.position = avoidance_center_local
+		avoidance_actor.set("roam_target", avoidance_center_local)
+		avoidance_actor.set("behavior_state", "idle_roam")
+	for _avoidance_frame in range(180):
+		aquarium.call("_apply_soft_actor_avoidance", 1.0 / 60.0)
+	var idle_overlap_within_limit: bool = true
+	var active_actor_ids: Array[String] = GameState.get_active_pet_ids()
+	for first_index in range(active_actor_ids.size()):
+		for second_index in range(first_index + 1, active_actor_ids.size()):
+			var first_actor: Node2D = actors.get(active_actor_ids[first_index]) as Node2D
+			var second_actor: Node2D = actors.get(active_actor_ids[second_index]) as Node2D
+			idle_overlap_within_limit = idle_overlap_within_limit and _body_overlap_ratio(first_actor, second_actor) <= 0.5
+	for pet_id in active_actor_ids:
+		var restore_actor: Node2D = actors.get(pet_id) as Node2D
+		var restore_state: Dictionary = avoidance_snapshots.get(pet_id, {}) as Dictionary
+		restore_actor.position = restore_state.get("position", restore_actor.position)
+		restore_actor.set("roam_target", restore_state.get("roam_target", restore_actor.get("roam_target")))
+		restore_actor.set("behavior_state", str(restore_state.get("behavior_state", "idle_roam")))
+	aquarium.call("_update_selection_markers")
+	_expect(idle_overlap_within_limit, "Three overlapping idle pets are softly separated below 50% visible-body overlap within three seconds")
+	var chase_inputs_unmodified: bool = true
+	for behavior in ["approach_food", "approach_full_food"]:
+		for pet_id in active_actor_ids:
+			var chase_actor: Node2D = actors.get(pet_id) as Node2D
+			chase_actor.position = avoidance_center_local
+			chase_actor.set("behavior_state", behavior)
+		var chase_positions: Dictionary = {}
+		for pet_id in active_actor_ids:
+			chase_positions[pet_id] = (actors.get(pet_id) as Node2D).position
+		aquarium.call("_apply_soft_actor_avoidance", 1.0 / 60.0)
+		for pet_id in active_actor_ids:
+			chase_inputs_unmodified = chase_inputs_unmodified and is_equal_approx((actors.get(pet_id) as Node2D).position.distance_to(chase_positions[pet_id]), 0.0)
+	for pet_id in active_actor_ids:
+		var restore_actor: Node2D = actors.get(pet_id) as Node2D
+		var restore_state: Dictionary = avoidance_snapshots.get(pet_id, {}) as Dictionary
+		restore_actor.position = restore_state.get("position", restore_actor.position)
+		restore_actor.set("roam_target", restore_state.get("roam_target", restore_actor.get("roam_target")))
+		restore_actor.set("behavior_state", str(restore_state.get("behavior_state", "idle_roam")))
+	aquarium.call("_update_selection_markers")
+	_expect(chase_inputs_unmodified, "Food and full-food approaches are not displaced by idle-pet avoidance")
 	var food_count_before_daily: int = GameState.get_inventory_count("food_basic")
 	var currency_before_daily: int = GameState.get_currency("bubble_coin")
 	var daily_claim: Dictionary = GameState.get_daily_claim()
@@ -158,14 +308,30 @@ func _run() -> void:
 	_expect(GameState.get_currency("bubble_coin") == currency_before_daily and GameState.get_inventory_count("food_basic") == food_count_before_daily, "Rejected shop purchase changes neither currency nor legacy quantity")
 	var food_cap_tokens: Array[String] = []
 	var food_quantity_before_cap: int = GameState.get_inventory_count("food_basic")
+	var food_spawn_rects: Array[Rect2] = []
 	for _drop_index in range(GameState.MAX_ACTIVE_FOOD_DROPS):
-		var cap_drop: Dictionary = aquarium.call("_drop_basic_food", Vector2.ZERO)
+		var spawn_position: Vector2 = aquarium.call("_next_food_spawn_position")
+		var cap_drop: Dictionary = aquarium.call("_drop_basic_food", spawn_position)
 		var cap_token: String = str(cap_drop.get("token_id", ""))
 		if not cap_token.is_empty():
 			food_cap_tokens.append(cap_token)
+			food_spawn_rects.append(Rect2(spawn_position - Vector2(32.0, 32.0), Vector2(64.0, 64.0)))
 	var cap_refused: Dictionary = aquarium.call("_drop_basic_food", Vector2.ZERO)
 	var cap_message: String = str((aquarium.get_node("%MessageLabel") as Label).text)
 	_expect(food_cap_tokens.size() == 10 and GameState.get_food_drops().size() == 10 and cap_refused.is_empty() and cap_message == "飼料已達上限（10）。", "The first 10 simultaneous drops succeed and the 11th is refused with a Traditional-Chinese limit message")
+	var feed_spawn_geometry_valid: bool = food_spawn_rects.size() == GameState.MAX_ACTIVE_FOOD_DROPS
+	var spawn_water: Rect2 = aquarium.get("active_water_rect")
+	for spawn_index in range(food_spawn_rects.size()):
+		var spawn_rect: Rect2 = food_spawn_rects[spawn_index]
+		feed_spawn_geometry_valid = feed_spawn_geometry_valid and spawn_rect.position.x >= spawn_water.position.x and spawn_rect.position.y >= spawn_water.position.y
+		feed_spawn_geometry_valid = feed_spawn_geometry_valid and spawn_rect.end.x <= spawn_water.end.x and spawn_rect.end.y <= spawn_water.end.y
+		for prior_index in range(spawn_index):
+			feed_spawn_geometry_valid = feed_spawn_geometry_valid and not spawn_rect.intersects(food_spawn_rects[prior_index])
+		for pet_id in GameState.get_active_pet_ids():
+			var spawn_actor: Node2D = actors.get(pet_id) as Node2D
+			if spawn_actor != null:
+				feed_spawn_geometry_valid = feed_spawn_geometry_valid and not spawn_rect.intersects(spawn_actor.call("get_visual_body_rect_global"))
+	_expect(feed_spawn_geometry_valid, "Ten visible food markers use separated positions inside the water and avoid all three faces/bodies")
 	_expect(GameState.get_inventory_count("food_basic") == food_quantity_before_cap, "Ten accepted drops and the refused 11th leave unlimited legacy inventory unchanged")
 	for cap_token in food_cap_tokens:
 		GameState.resolve_food_drop(cap_token)
@@ -216,6 +382,7 @@ func _run() -> void:
 	water_inside_safe_16_9 = water_inside_safe_16_9 and water_16_9.end.x <= safe_16_9.end.x and water_16_9.end.y <= safe_16_9.end.y
 	var ui_nodes: Array[Control] = [
 		status_backdrop,
+		status_scroll,
 		aquarium.get_node("%InventoryBackdrop") as Control,
 		aquarium.get_node("%PetRosterBackdrop") as Control,
 		aquarium.get_node("%MessageLabel") as Control,
@@ -252,18 +419,25 @@ func _run() -> void:
 	var visual_probe: Node = actors.get(GameState.get_active_pet_ids()[0]) as Node
 	var prior_stage: int = int(visual_probe.get("current_stage"))
 	var stages_grow_within_limit: bool = true
+	var selected_marker_fits_all_stages: bool = true
 	var previous_body_height: float = 0.0
 	for stage in range(1, 6):
 		visual_probe.call("set_stage", stage, "normal_jellycat")
+		aquarium.call("_update_selection_markers")
 		var stage_body: Vector2 = visual_probe.call("get_visual_body_size")
 		var animated_body: Vector2 = visual_probe.call("get_max_animated_body_size")
 		var stage_rect: Rect2 = visual_probe.call("get_visual_body_rect_global")
+		var stage_marker: Line2D = visual_probe.get_node_or_null("SelectedPetIndicator") as Line2D
+		var stage_marker_rect: Rect2 = _get_line_global_rect(stage_marker) if stage_marker != null else Rect2()
 		var stage_fits: bool = stage_rect.position.x >= water_16_9.position.x and stage_rect.position.y >= water_16_9.position.y
 		stage_fits = stage_fits and stage_rect.end.x <= water_16_9.end.x and stage_rect.end.y <= water_16_9.end.y
+		selected_marker_fits_all_stages = selected_marker_fits_all_stages and stage_marker != null and stage_marker.visible and stage_marker_rect.size.x <= stage_rect.size.x * 0.8 and not stage_marker_rect.intersects(stage_rect)
 		stages_grow_within_limit = stages_grow_within_limit and stage_body.y > previous_body_height and animated_body.y <= water_16_9.size.y * 0.25 and stage_fits
 		previous_body_height = stage_body.y
 	visual_probe.call("set_stage", prior_stage, "normal_jellycat")
+	aquarium.call("_update_selection_markers")
 	_expect(stages_grow_within_limit, "Five stage textures grow by visible bounds and never exceed 25% with animation")
+	_expect(selected_marker_fits_all_stages, "Selected marker stays below each of the five stage textures without covering its visible pixels")
 	var probe_sprite: Sprite2D = visual_probe.get_node("%Sprite") as Sprite2D
 	var actor_touch_target: float = DOS_STYLE.get_touch_target_height(aquarium.get_viewport_rect().size)
 	var visible_pixel_rect: Rect2 = visual_probe.call("_get_texture_content_rect")
@@ -324,8 +498,20 @@ func _run() -> void:
 	var jack_nameplates: Control = aquarium.get_node("%PetRosterBackdrop") as Control
 	var jack_status: Control = aquarium.get_node("%StatusBackdrop") as Control
 	var jack_panels_do_not_overlap: bool = not Rect2(jack_nameplates.position, jack_nameplates.size).intersects(Rect2(jack_status.position, jack_status.size))
+	aquarium.call("_layout_ui", jack_viewport, jack_safe, 112.0)
+	var jack_status_scroll_inside: bool = _control_inside_safe(status_scroll, jack_safe)
+	jack_status_scroll_inside = jack_status_scroll_inside and status_scroll.position.x >= jack_status.position.x and status_scroll.position.y >= jack_status.position.y
+	jack_status_scroll_inside = jack_status_scroll_inside and status_scroll.position.x + status_scroll.size.x <= jack_status.position.x + jack_status.size.x
+	jack_status_scroll_inside = jack_status_scroll_inside and status_scroll.position.y + status_scroll.size.y <= jack_status.position.y + jack_status.size.y
+	var jack_320_touch_targets: bool = true
+	for roster_button in roster_slots:
+		jack_320_touch_targets = jack_320_touch_targets and roster_button.custom_minimum_size.x >= 112.0 and roster_button.custom_minimum_size.y >= 112.0
+	for action_node in primary_action_bar.get_children():
+		if action_node is Button:
+			jack_320_touch_targets = jack_320_touch_targets and (action_node as Button).custom_minimum_size.x >= 112.0 and (action_node as Button).custom_minimum_size.y >= 112.0
+	_expect(jack_status_scroll_inside and jack_320_touch_targets, "1280x591 320-dpi layout keeps scrollable status inside its backdrop and every roster/action hit target at least 112px")
 	aquarium.call("_set_pet_info_open", true)
-	aquarium.call("_layout_ui", jack_viewport, jack_safe)
+	aquarium.call("_layout_ui", jack_viewport, jack_safe, 112.0)
 	jack_panels_do_not_overlap = jack_panels_do_not_overlap and not Rect2(jack_nameplates.position, jack_nameplates.size).intersects(Rect2(jack_status.position, jack_status.size)) and jack_status.position.y >= jack_nameplates.position.y + jack_nameplates.size.y
 	aquarium.call("_set_pet_info_open", false)
 	aquarium.call("_layout_ui", jack_viewport, jack_safe)
@@ -333,8 +519,9 @@ func _run() -> void:
 	var more_button: Button = aquarium.get_node("%MoreButton") as Button
 	var more_panel: PanelContainer = aquarium.get_node("%MorePanel") as PanelContainer
 	var more_items: GridContainer = aquarium.get_node("%MoreItems") as GridContainer
+	var more_items_scroll: ScrollContainer = more_panel.get_node("MoreContent/MoreItemsScroll") as ScrollContainer
 	more_button.pressed.emit()
-	var more_menu_complete: bool = more_panel.visible and more_items.get_child_count() == 7
+	var more_menu_complete: bool = more_panel.visible and more_items.get_child_count() == 7 and more_items_scroll.get_child(0) == more_items
 	var more_menu_texts: Array[String] = ["餅乾", "清潔", "藥水", "進化", "商店", "每日飼料", "開啟日誌"]
 	for menu_node in more_items.get_children():
 		if menu_node is Button:
@@ -352,15 +539,19 @@ func _run() -> void:
 	var more_safe_geometry: bool = true
 	for layout_case in more_safe_layouts:
 		var layout_safe: Rect2 = layout_case["safe"]
-		aquarium.call("_layout_ui", layout_case["viewport"], layout_safe)
+		aquarium.call("_layout_ui", layout_case["viewport"], layout_safe, 112.0)
 		more_safe_geometry = more_safe_geometry and _control_inside_safe(more_panel, layout_safe)
 		more_safe_geometry = more_safe_geometry and _control_inside_safe(primary_action_bar, layout_safe)
 		more_safe_geometry = more_safe_geometry and _control_inside_safe(aquarium.get_node("%PetRoster") as Control, layout_safe)
+		more_safe_geometry = more_safe_geometry and _control_inside_safe(status_scroll, layout_safe)
 		for action_node in primary_action_bar.get_children():
 			if action_node is Button:
 				var action_button: Button = action_node as Button
-				more_safe_geometry = more_safe_geometry and action_button.custom_minimum_size.x >= 48.0 and action_button.custom_minimum_size.y >= 48.0
-	_expect(more_menu_complete and more_safe_geometry, "More menu exposes seven Traditional-Chinese controls and keeps menus, nameplates and >=48dp actions inside safe bounds at all four target aspects")
+				more_safe_geometry = more_safe_geometry and action_button.custom_minimum_size.x >= 112.0 and action_button.custom_minimum_size.y >= 112.0
+		for menu_node in more_items.get_children():
+			if menu_node is Button:
+				more_safe_geometry = more_safe_geometry and (menu_node as Button).custom_minimum_size.x >= 112.0 and (menu_node as Button).custom_minimum_size.y >= 112.0
+	_expect(more_menu_complete and more_safe_geometry, "More menu exposes seven Traditional-Chinese scrollable controls and keeps the menu, nameplates, status and 112px touch targets inside safe bounds at all four aspects")
 	var more_back_food_count: int = GameState.get_food_drops().size()
 	var more_back: InputEventKey = InputEventKey.new()
 	more_back.pressed = true
@@ -1509,6 +1700,33 @@ func _food_ledger_has_token(token_id: String) -> bool:
 		if str(drop.get("token_id", "")) == token_id:
 			return true
 	return false
+
+
+func _get_line_global_rect(line: Line2D) -> Rect2:
+	if line == null or line.points.size() < 2:
+		return Rect2()
+	var first_point: Vector2 = line.to_global(line.points[0])
+	var minimum: Vector2 = first_point
+	var maximum: Vector2 = first_point
+	for point_index in range(1, line.points.size()):
+		var global_point: Vector2 = line.to_global(line.points[point_index])
+		minimum.x = minf(minimum.x, global_point.x)
+		minimum.y = minf(minimum.y, global_point.y)
+		maximum.x = maxf(maximum.x, global_point.x)
+		maximum.y = maxf(maximum.y, global_point.y)
+	return Rect2(minimum, maximum - minimum).grow(line.width * 0.5)
+
+
+func _body_overlap_ratio(first_actor: Node2D, second_actor: Node2D) -> float:
+	var first_rect: Rect2 = first_actor.call("get_visual_body_rect_global")
+	var second_rect: Rect2 = second_actor.call("get_visual_body_rect_global")
+	if not first_rect.intersects(second_rect):
+		return 0.0
+	var minimum_area: float = minf(first_rect.size.x * first_rect.size.y, second_rect.size.x * second_rect.size.y)
+	if minimum_area <= 0.0:
+		return 0.0
+	var overlap_rect: Rect2 = first_rect.intersection(second_rect)
+	return overlap_rect.size.x * overlap_rect.size.y / minimum_area
 
 
 func _control_inside_safe(control: Control, safe_rect: Rect2) -> bool:

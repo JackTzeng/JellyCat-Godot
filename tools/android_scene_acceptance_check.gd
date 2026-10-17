@@ -6,6 +6,7 @@ const TITLE_SCENE: String = "res://scenes/title/title.tscn"
 const EGG_SELECT_SCENE: String = "res://scenes/egg_select/egg_select.tscn"
 const HATCH_SCENE: String = "res://scenes/hatch/hatch.tscn"
 const AQUARIUM_SCENE: String = "res://scenes/aquarium/aquarium.tscn"
+const NURSERY_SCENE: String = "res://scenes/nursery/nursery.tscn"
 
 var failures: Array[String] = []
 var isolated_save_ready: bool = false
@@ -120,6 +121,52 @@ func _run() -> void:
 	_expect(int(game_state.get_inventory_count("food_basic")) == before_food and int(game_state.get_currency("bubble_coin")) == coins_before_daily, "Rejected Android shop purchase preserves inventory and currency")
 	(shop_panel.get_node("%CloseShopButton") as Button).pressed.emit()
 	_expect(not shop_panel.visible, "Shop closes after the unlimited-food purchase check")
+	var nursery_button: Button = aquarium.get_node("%NurseryButton") as Button
+	var nursery_egg_ids: Array[String] = []
+	for egg in game_state.get_nursery_eggs():
+		nursery_egg_ids.append(str(egg.get("egg_id", "")))
+	var active_egg_id: String = str(game_state.get_active_egg_id())
+	var other_egg_id: String = nursery_egg_ids[0] if nursery_egg_ids.size() > 0 and nursery_egg_ids[0] != active_egg_id else nursery_egg_ids[1]
+	nursery_button.pressed.emit()
+	reached_scene = await _wait_for_scene(NURSERY_SCENE)
+	if not reached_scene:
+		_fail("Aquarium Nursery button did not load the Nursery scene")
+		_finish()
+		return
+	var nursery: Node = get_tree().current_scene
+	var nursery_cards: Dictionary = nursery.get("egg_cards_by_id") as Dictionary
+	_expect(nursery_cards.size() == 2 and nursery_cards.has(active_egg_id) and nursery_cards.has(other_egg_id), "Production Nursery lists the two remaining eggs")
+	var active_card: Dictionary = nursery_cards.get(active_egg_id, {}) as Dictionary
+	var active_card_button: Button = active_card.get("button") as Button
+	active_card_button.pressed.emit()
+	var nursery_progress_after_tap: int = int(game_state.get_nursery_egg(active_egg_id).get("current_clicks", 0))
+	_expect(nursery_progress_after_tap == 1 and int(game_state.get_nursery_egg(other_egg_id).get("current_clicks", 0)) == 0 and _saved_payload_is_valid(), "Nursery click advances and persists only its selected egg")
+	var nursery_back_button: Button = nursery.get_node("BackToAquariumButton") as Button
+	nursery_back_button.pressed.emit()
+	reached_scene = await _wait_for_scene(AQUARIUM_SCENE)
+	if not reached_scene:
+		_fail("Nursery return button did not reload Aquarium")
+		_finish()
+		return
+	aquarium = get_tree().current_scene
+	nursery_button = aquarium.get_node("%NurseryButton") as Button
+	nursery_button.pressed.emit()
+	reached_scene = await _wait_for_scene(NURSERY_SCENE)
+	if not reached_scene:
+		_fail("Aquarium could not reopen the Nursery after returning")
+		_finish()
+		return
+	nursery = get_tree().current_scene
+	var resumed_card: Dictionary = (nursery.get("egg_cards_by_id") as Dictionary).get(active_egg_id, {}) as Dictionary
+	_expect(int(game_state.get_nursery_egg(active_egg_id).get("current_clicks", 0)) == 1 and resumed_card.size() > 0, "Returning to Nursery preserves and displays each egg's saved progress")
+	var nursery_window: Window = (nursery as Control).get_window()
+	nursery_window.go_back_requested.emit()
+	reached_scene = await _wait_for_scene(AQUARIUM_SCENE)
+	_expect(reached_scene and not get_tree().quit_on_go_back, "Android Back from Nursery returns to Aquarium without quitting the game")
+	if not reached_scene:
+		_finish()
+		return
+	aquarium = get_tree().current_scene
 	_expect(bool(save_manager.save_game()), "Aquarium operation saves through the isolated path")
 	_expect(_saved_payload_is_valid(), "Saved JSON can be reopened from the isolated path")
 	var saved: Variant = JSON.parse_string(FileAccess.get_file_as_string(save_manager.get_save_path()))
@@ -144,7 +191,7 @@ func _wait_for_scene(path: String) -> bool:
 	var router: Variant = get_tree().root.get_node("SceneRouter")
 	for _frame in range(120):
 		await get_tree().process_frame
-		if str(router.current_scene_path) == path and get_tree().current_scene != null:
+		if str(router.current_scene_path) == path and get_tree().current_scene != null and str(get_tree().current_scene.scene_file_path) == path:
 			return true
 	return false
 
@@ -177,7 +224,7 @@ func _finish() -> void:
 			exit_code = 1
 		save_manager.use_production_save_path()
 	if exit_code == 0:
-		print("ANDROID_SCENE_ACCEPTANCE_OK scenes=5 ui_actions=16 production_boot=true isolated_save=true")
+		print("ANDROID_SCENE_ACCEPTANCE_OK scenes=6 ui_actions=21 production_boot=true isolated_save=true")
 	else:
 		for failure in failures:
 			push_error("ANDROID_SCENE_ACCEPTANCE_FAILURE: %s" % failure)

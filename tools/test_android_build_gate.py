@@ -20,6 +20,8 @@ from pathlib import Path, PurePosixPath
 sys.dont_write_bytecode = True
 
 from android_asset_gate import (
+    APPROVED_TEXTURE_PNGS,
+    ART_DOS_08_PNGS,
     NATIVE_TANK,
     STAGE_PNGS,
     verify_asset_sources,
@@ -93,12 +95,12 @@ def verify_apk(path: Path, started_ns: int) -> tuple[str | None, str | None]:
 class BuildGateTests(unittest.TestCase):
     def create_asset_fixture(self, root: Path) -> None:
         project = Path(__file__).resolve().parents[1]
-        for relative, _, _ in STAGE_PNGS:
-            stage = Path(relative)
-            target = root / stage
+        for relative, _, _, _ in APPROVED_TEXTURE_PNGS:
+            texture = Path(relative)
+            target = root / texture
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes((project / PurePosixPath(relative)).read_bytes())
-            ctex = f".godot/imported/{stage.stem}-fixture.ctex"
+            ctex = f".godot/imported/{texture.stem}-fixture.ctex"
             Path(f"{target}.import").write_text(f'[remap]\npath="res://{ctex}"\n', encoding="utf-8")
             cooked = root / ctex
             cooked.parent.mkdir(parents=True, exist_ok=True)
@@ -113,13 +115,14 @@ class BuildGateTests(unittest.TestCase):
 
     def test_approved_assets_and_pck_gate_pass(self) -> None:
         self.assertEqual(len(STAGE_PNGS), 5)
+        self.assertEqual(len(ART_DOS_08_PNGS), 8)
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             self.create_asset_fixture(root)
             self.assertIsNone(verify_imports(root))
             error, imported = verify_asset_sources(root, require_cooked=False)
             self.assertIsNone(error)
-            self.assertEqual(len(imported), 5)
+            self.assertEqual(len(imported), 13)
 
             apk_path = root / "assets.apk"
             with zipfile.ZipFile(apk_path, "w") as apk:
@@ -174,7 +177,8 @@ class BuildGateTests(unittest.TestCase):
             (root / stage_one).write_bytes(data)
 
         cases = (
-            ("missing stage", lambda root: (root / STAGE_PNGS[-1][0]).unlink(), "approved stage PNG is missing"),
+            ("missing stage", lambda root: (root / STAGE_PNGS[-1][0]).unlink(), "approved texture PNG is missing"),
+            ("missing nursery asset", lambda root: (root / ART_DOS_08_PNGS[0][0]).unlink(), "approved texture PNG is missing"),
             ("wrong sha", wrong_sha, "SHA256 mismatch"),
             ("truncated png", lambda root: (root / stage_one).write_bytes((root / stage_one).read_bytes()[:24]), "PNG chunk is truncated"),
             ("wrong dimensions", wrong_dimensions, "dimensions are not 64x64"),

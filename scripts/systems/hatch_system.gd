@@ -6,30 +6,34 @@ const STARTER_PERSONALITIES: Array[String] = ["curious", "affectionate", "sleepy
 
 
 static func tap_egg(egg_id: String) -> Dictionary:
+	var egg: Dictionary = advance_egg_progress(egg_id)
+	if egg.is_empty():
+		return {}
+	if int(egg.get("current_clicks", 0)) >= int(egg.get("required_clicks", 10)):
+		var pet: Dictionary = create_pet_from_egg(egg_id)
+		if pet.is_empty():
+			return egg
+		egg["is_hatched"] = true
+	return egg
+
+
+static func advance_egg_progress(egg_id: String) -> Dictionary:
 	var egg: Dictionary = GameState.get_nursery_egg(egg_id)
 	if egg.is_empty():
 		RuntimeLogger.log_error("No egg found for id: %s" % egg_id)
 		return {}
 	var old_clicks: int = int(egg.get("current_clicks", 0))
-	egg["current_clicks"] = min(old_clicks + 1, int(egg.get("required_clicks", 10)))
+	var required_clicks: int = maxi(1, int(egg.get("required_clicks", 10)))
+	egg["current_clicks"] = mini(old_clicks + 1, required_clicks)
 	if old_clicks != int(egg.get("current_clicks", 0)):
 		RuntimeLogger.log_state("egg current_clicks changed: %d -> %d" % [old_clicks, int(egg.get("current_clicks", 0))])
-	if int(egg["current_clicks"]) >= int(egg.get("required_clicks", 10)):
-		egg["is_hatched"] = false
-		if not GameState.update_nursery_egg(egg_id, egg):
-			return {}
-		var pet: Dictionary = create_pet_from_egg(egg_id)
-		if pet.is_empty():
-			return egg
-		egg["is_hatched"] = true
-		return egg
-	else:
-		egg["is_hatched"] = false
-		GameState.update_nursery_egg(egg_id, egg)
+	egg["is_hatched"] = false
+	if not GameState.update_nursery_egg(egg_id, egg):
+		return {}
 	return egg
 
 
-static func create_pet_from_egg(egg_id: String) -> Dictionary:
+static func create_pet_from_egg(egg_id: String, nickname_override: String = "") -> Dictionary:
 	var egg: Dictionary = GameState.get_nursery_egg(egg_id)
 	if egg.is_empty() or int(egg.get("current_clicks", 0)) < int(egg.get("required_clicks", 10)):
 		return {}
@@ -51,10 +55,13 @@ static func create_pet_from_egg(egg_id: String) -> Dictionary:
 	if not GameState.update_nursery_egg(egg_id, egg):
 		return {}
 	var personality: Dictionary = GameApp.get_table("personalities").get(personality_id, {}) as Dictionary
+	var nickname: String = nickname_override.strip_edges().left(18)
+	if nickname.is_empty():
+		nickname = "%s水母喵" % str(personality.get("display_name", "好奇"))
 	var pet: Dictionary = {
 		"pet_id": pet_id,
 		"species_id": species_id,
-		"nickname": "%s水母喵" % str(personality.get("display_name", "好奇")),
+		"nickname": nickname,
 		"personality_id": personality_id,
 		"stage": 1,
 		"hunger": int(species.get("default_hunger", 80)),

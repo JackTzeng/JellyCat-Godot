@@ -1,6 +1,7 @@
 extends Control
 
 const DOS_STYLE = preload("res://scripts/ui/dos_style.gd")
+const NATIVE_TEXT_ENTRY = preload("res://scripts/ui/native_text_entry.gd")
 const COIN_BUBBLE_SCENE: PackedScene = preload("res://scenes/ui/coin_bubble_pickup.tscn")
 const JELLYCAT_ACTOR_SCENE: PackedScene = preload("res://scenes/pet/jellycat_actor.tscn")
 const DEFAULT_TOUCH_COOLDOWN_SECONDS: float = 0.5
@@ -36,10 +37,12 @@ const FOOD_PELLET_TEXTURE: Texture2D = preload("res://assets/food/pellet_32.png"
 @onready var log_toggle_button: Button = %LogToggleButton
 @onready var modal_input_shield: ColorRect = %ModalInputShield
 @onready var more_panel: PanelContainer = %MorePanel
+@onready var more_items: GridContainer = %MoreItems
 @onready var more_button: Button = %MoreButton
 @onready var pet_roster: HBoxContainer = %PetRoster
 @onready var pet_roster_backdrop: ColorRect = %PetRosterBackdrop
 @onready var status_backdrop: ColorRect = %StatusBackdrop
+@onready var status_scroll: ScrollContainer = %StatusScroll
 @onready var top_panel: VBoxContainer = %TopPanel
 @onready var inventory_backdrop: ColorRect = %InventoryBackdrop
 @onready var action_backdrop: ColorRect = %ActionBackdrop
@@ -107,6 +110,7 @@ func _ready() -> void:
 	rename_button.pressed.connect(_on_rename_pressed)
 	rename_confirm_button.pressed.connect(_on_rename_confirmed)
 	rename_cancel_button.pressed.connect(_close_rename_panel)
+	nickname_edit.gui_input.connect(_on_nickname_gui_input)
 	get_viewport().size_changed.connect(_apply_responsive_layout)
 	_apply_responsive_layout()
 	FoodDropSystem.expire_due_drops()
@@ -131,6 +135,8 @@ func _enable_world_actions() -> void:
 
 func _process(delta: float) -> void:
 	_update_food_drops(delta)
+	_apply_soft_actor_avoidance(delta)
+	_update_selection_markers()
 	if touch_cooldown > 0.0:
 		touch_cooldown = max(0.0, touch_cooldown - delta)
 	touch_status_timer += delta
@@ -148,8 +154,7 @@ func _on_feed_pressed() -> void:
 	if not _accept_action("feed"):
 		return
 	var selected_pet_id: String = GameState.get_selected_pet_id()
-	var selected_actor: Node2D = actors_by_id.get(selected_pet_id) as Node2D
-	var drop_position: Vector2 = actor_anchor.global_position if selected_actor == null else selected_actor.global_position + Vector2(150.0, -70.0)
+	var drop_position: Vector2 = _next_food_spawn_position()
 	_drop_basic_food(drop_position, selected_pet_id)
 
 
@@ -335,10 +340,14 @@ func _on_nursery_pressed() -> void:
 	if not world_actions_enabled or not _accept_action("nursery"):
 		return
 	_close_more_menu()
-	if not _select_next_unhatched_egg():
+	var eggs: Array[Dictionary] = GameState.get_nursery_eggs()
+	if eggs.is_empty():
 		_show_message("沒有蛋了")
 		return
-	SceneRouter.go_hatch()
+	if GameState.get_nursery_egg(GameState.get_active_egg_id()).is_empty():
+		GameState.set_active_egg_id(str(eggs[0].get("egg_id", "")))
+		SaveManager.save_game()
+	SceneRouter.go_nursery()
 
 
 func _select_next_unhatched_egg() -> bool:
@@ -370,10 +379,12 @@ func _on_rename_pressed() -> void:
 func _request_rename_input_focus() -> void:
 	if not rename_modal_active or not is_instance_valid(nickname_edit):
 		return
-	nickname_edit.grab_focus()
+	NATIVE_TEXT_ENTRY.open_keyboard(nickname_edit)
 	rename_keyboard_request_count += 1
-	if OS.get_name() == "Android":
-		DisplayServer.virtual_keyboard_show(nickname_edit.text, Rect2i(nickname_edit.get_global_rect()))
+
+
+func _on_nickname_gui_input(event: InputEvent) -> void:
+	NATIVE_TEXT_ENTRY.handle_gui_input(event, nickname_edit)
 
 
 func _close_rename_panel() -> void:
@@ -513,7 +524,7 @@ func _refresh(log_refresh: bool = false) -> void:
 		evolution_label.text = "下一階段：%s · 還需 %d 經驗" % [str(next_stage.get("name", "下一階段")), exp_to_next]
 	_refresh_pet_roster()
 	var egg_count: int = GameState.get_nursery_eggs().size()
-	nursery_button.text = "孵蛋（%d）" % egg_count if egg_count > 0 else "沒有蛋了"
+	nursery_button.text = "育嬰室 %d" % egg_count if egg_count > 0 else "沒有蛋了"
 	nursery_button.disabled = egg_count == 0
 	nursery_button.tooltip_text = "剩餘蛋數：%d" % egg_count if egg_count > 0 else "沒有蛋了"
 	for actor_id in actors_by_id.keys():
@@ -606,8 +617,8 @@ func _refresh_pet_roster() -> void:
 			button.button_pressed = pet_id == GameState.get_selected_pet_id()
 			roster_buttons_by_id[pet_id] = button
 		else:
-			label.text = "蛋　寵物 %d\n孵蛋" % (slot_index + 1) if eggs_remaining > 0 else "寵物 %d\n沒有蛋了" % (slot_index + 1)
-			button.tooltip_text = "點此孵蛋" if eggs_remaining > 0 else "沒有蛋了"
+			label.text = "蛋　寵物 %d\n育嬰室" % (slot_index + 1) if eggs_remaining > 0 else "寵物 %d\n沒有蛋了" % (slot_index + 1)
+			button.tooltip_text = "點此進入育嬰室" if eggs_remaining > 0 else "沒有蛋了"
 			button.disabled = eggs_remaining == 0
 			button.button_pressed = false
 	_update_pet_info_button()
@@ -668,21 +679,28 @@ func _update_selection_markers() -> void:
 		var actor: Node2D = actors_by_id.get(pet_id) as Node2D
 		if not is_instance_valid(actor):
 			continue
-		var marker: Polygon2D = actor.get_node_or_null("SelectedPetIndicator") as Polygon2D
+		var marker: Line2D = actor.get_node_or_null("SelectedPetIndicator") as Line2D
 		if marker == null:
-			marker = Polygon2D.new()
+			marker = Line2D.new()
 			marker.name = "SelectedPetIndicator"
-			marker.z_index = 1
-			marker.color = Color(1.0, 0.78, 0.08, 0.96)
-			var body_size: Vector2 = actor.call("get_visual_body_size")
-			marker.position = Vector2(0.0, body_size.y * 0.43 + 9.0)
-			var radii: Vector2 = Vector2(maxf(body_size.x * 0.48, 32.0), maxf(body_size.y * 0.14, 9.0))
-			var points: PackedVector2Array = PackedVector2Array()
-			for point_index in range(24):
-				var angle: float = TAU * float(point_index) / 24.0
-				points.append(Vector2(cos(angle) * radii.x, sin(angle) * radii.y))
-			marker.polygon = points
+			marker.z_index = -1
+			marker.default_color = Color(1.0, 0.78, 0.08, 0.68)
+			marker.width = 2.0
+			marker.closed = true
+			marker.antialiased = false
 			actor.add_child(marker)
+		var body_rect: Rect2 = actor.call("get_visual_body_rect_global")
+		if body_rect.size == Vector2.ZERO:
+			marker.visible = false
+			continue
+		actor.z_index = 1 if pet_id == selected_pet_id else 0
+		var foot_position: Vector2 = Vector2(body_rect.get_center().x, body_rect.end.y + 6.0)
+		marker.position = actor.to_local(foot_position)
+		var radii: Vector2 = Vector2(body_rect.size.x * 0.3, maxf(1.5, body_rect.size.y * 0.01))
+		marker.clear_points()
+		for point_index in range(32):
+			var angle: float = TAU * float(point_index) / 32.0
+			marker.add_point(Vector2(cos(angle) * radii.x, sin(angle) * radii.y))
 		marker.visible = pet_id == selected_pet_id
 
 
@@ -703,35 +721,53 @@ func _get_safe_viewport_rect(viewport_size: Vector2) -> Rect2:
 	return result
 
 
-func _layout_ui(viewport_size: Vector2, safe_rect: Rect2) -> void:
-	var margin: float = 20.0
+func _layout_ui(viewport_size: Vector2, safe_rect: Rect2, touch_target_override: float = -1.0) -> void:
 	var safe_left: float = maxf(0.0, safe_rect.position.x)
 	var safe_top: float = maxf(0.0, safe_rect.position.y)
 	var safe_right: float = minf(viewport_size.x, safe_rect.position.x + safe_rect.size.x)
 	var safe_bottom: float = minf(viewport_size.y, safe_rect.position.y + safe_rect.size.y)
 	var safe_width: float = maxf(1.0, safe_right - safe_left)
 	var safe_height: float = maxf(1.0, safe_bottom - safe_top)
-	var status_width: float = minf(maxf(1.0, safe_width - margin * 2.0), clampf(safe_width * 0.29, 280.0, 430.0)) if pet_info_open else minf(156.0, maxf(1.0, safe_width - margin * 2.0))
-	var status_height: float = 352.0 if pet_info_open else 112.0
-	var right_width: float = minf(maxf(1.0, safe_width - margin * 2.0), clampf(safe_width * 0.13, 160.0, 300.0))
+	var touch_target: float = touch_target_override if touch_target_override > 0.0 else DOS_STYLE.get_touch_target_height(viewport_size)
+	var margin: float = clampf(touch_target * 0.15, 12.0, 24.0)
 	var top_y: float = safe_top + margin
-	_place_control(pet_roster, Rect2(Vector2(safe_left + margin, top_y + 4.0), Vector2(maxf(1.0, safe_width - margin * 2.0), 64.0)) )
+	for roster_button in roster_buttons_by_slot:
+		roster_button.custom_minimum_size = Vector2(touch_target, touch_target)
+	var roster_height: float = maxf(touch_target, pet_roster.get_combined_minimum_size().y)
+	_place_control(pet_roster, Rect2(Vector2(safe_left + margin, top_y + 4.0), Vector2(maxf(1.0, safe_width - margin * 2.0), roster_height)))
 	_place_control(pet_roster_backdrop, Rect2(pet_roster.position - Vector2(8.0, 4.0), pet_roster.size + Vector2(16.0, 8.0)))
 	var status_top: float = pet_roster_backdrop.position.y + pet_roster_backdrop.size.y + 16.0
+	var status_width: float = minf(maxf(1.0, safe_width - margin * 2.0), clampf(safe_width * (0.29 if pet_info_open else 0.16), 280.0 if pet_info_open else 156.0, 390.0 if pet_info_open else 220.0))
+	var status_available_height: float = maxf(1.0, safe_bottom - margin - status_top)
+	var status_content_height: float = maxf(touch_target + 32.0, top_panel.get_combined_minimum_size().y + 16.0)
+	var status_height: float = minf(status_content_height, status_available_height)
 	var status_rect: Rect2 = Rect2(Vector2(safe_left + margin, status_top), Vector2(status_width, status_height))
 	_place_control(status_backdrop, status_rect)
-	_place_control(top_panel, Rect2(status_rect.position + Vector2(12.0, 8.0), status_rect.size - Vector2(24.0, 16.0)))
-	var inventory_rect: Rect2 = Rect2(Vector2(safe_right - margin - right_width, top_y + 80.0), Vector2(right_width, 126.0))
+	_place_control(status_scroll, Rect2(status_rect.position + Vector2(8.0, 8.0), status_rect.size - Vector2(16.0, 16.0)))
+	top_panel.custom_minimum_size.x = maxf(1.0, status_scroll.size.x)
+	for status_button in [pet_info_button, rename_button]:
+		status_button.custom_minimum_size = Vector2(maxf(status_button.custom_minimum_size.x, touch_target), touch_target)
+	for menu_node in more_items.get_children():
+		if menu_node is Button:
+			(menu_node as Button).custom_minimum_size = Vector2(maxf((menu_node as Button).custom_minimum_size.x, touch_target), touch_target)
+	for rename_action in [rename_confirm_button, rename_cancel_button]:
+		rename_action.custom_minimum_size = Vector2(maxf(rename_action.custom_minimum_size.x, touch_target), touch_target)
+	var right_width: float = minf(maxf(1.0, safe_width - margin * 2.0), clampf(safe_width * 0.13, 160.0, 280.0))
+	var inventory_rect: Rect2 = Rect2(Vector2(safe_right - margin - right_width, top_y + roster_height + 12.0), Vector2(right_width, 126.0))
 	_place_control(inventory_backdrop, inventory_rect)
 	_place_control(inventory_label, Rect2(inventory_rect.position + Vector2(16.0, 12.0), inventory_rect.size - Vector2(32.0, 24.0)))
-	var touch_target: float = DOS_STYLE.get_touch_target_height(viewport_size)
-	var action_width_limit: float = maxf(16.0, safe_width - margin * 2.0)
-	var action_width: float = minf(action_width_limit, clampf(safe_width * 0.19, 216.0, 280.0))
-	var action_rows: int = 2
-	var action_height_limit: float = maxf(17.0, safe_height - margin * 2.0)
-	var action_height: float = minf(action_rows * touch_target + maxf(0.0, action_rows - 1) * 12.0 + 16.0, action_height_limit)
+	var action_width_limit: float = maxf(1.0, safe_width - margin * 2.0)
+	var action_columns: int = 2 if action_width_limit >= touch_target * 2.0 + 28.0 else 1
+	action_bar.columns = action_columns
+	var action_child_count: int = action_bar.get_child_count()
+	var action_rows: int = ceili(float(action_child_count) / float(action_columns))
+	var action_min_width: float = touch_target * float(action_columns) + 12.0 * float(action_columns - 1) + 16.0
+	var action_width: float = minf(action_width_limit, maxf(action_min_width, clampf(safe_width * 0.19, 216.0, 280.0)))
+	var action_height_limit: float = maxf(1.0, safe_height - margin * 2.0)
+	var action_content_height: float = float(action_rows) * touch_target + float(action_rows - 1) * 12.0 + 16.0
+	var action_height: float = minf(action_content_height, action_height_limit)
 	var action_rect: Rect2 = Rect2(Vector2(safe_right - margin - action_width + 8.0, safe_bottom - margin - action_height + 8.0), Vector2(action_width - 16.0, action_height - 16.0))
-	var button_width: float = maxf(touch_target, (action_rect.size.x - 12.0) / 2.0)
+	var button_width: float = maxf(1.0, (action_rect.size.x - float(action_columns - 1) * 12.0) / float(action_columns))
 	for child in action_bar.get_children():
 		if child is Button:
 			(child as Button).custom_minimum_size = Vector2(button_width, touch_target)
@@ -752,7 +788,8 @@ func _layout_ui(viewport_size: Vector2, safe_rect: Rect2) -> void:
 	_place_control(rename_panel, Rect2(rename_position, Vector2(rename_width, rename_height)))
 	var message_left: float = status_rect.end.x + margin
 	var message_right: float = minf(safe_right - margin - right_width - margin, action_backdrop.position.x - margin)
-	_place_control(message_label, Rect2(Vector2(message_left, top_y + 76.0), Vector2(maxf(0.0, message_right - message_left), 38.0)))
+	var message_top: float = pet_roster_backdrop.position.y + pet_roster_backdrop.size.y + 16.0
+	_place_control(message_label, Rect2(Vector2(message_left, message_top), Vector2(maxf(0.0, message_right - message_left), 38.0)))
 	message_label.visible = not more_panel.visible
 	if more_panel.visible:
 		var menu_left: float = maxf(safe_left + margin, status_rect.end.x + margin)
@@ -760,10 +797,10 @@ func _layout_ui(viewport_size: Vector2, safe_rect: Rect2) -> void:
 		var menu_available_width: float = maxf(1.0, menu_right - menu_left)
 		var menu_width: float = minf(menu_available_width, clampf(safe_width * 0.40, 280.0, 520.0))
 		var roster_bottom: float = pet_roster_backdrop.position.y + pet_roster_backdrop.size.y
-		var menu_height_limit: float = maxf(160.0, action_bar.position.y - roster_bottom - margin * 2.0)
-		var menu_height: float = minf(maxf(240.0, more_panel.get_combined_minimum_size().y), menu_height_limit)
+		var menu_height_limit: float = maxf(1.0, action_bar.position.y - roster_bottom - margin * 2.0)
+		var menu_height: float = minf(maxf(120.0, more_panel.get_combined_minimum_size().y), menu_height_limit)
 		var menu_x: float = menu_left + maxf(0.0, (menu_available_width - menu_width) * 0.5)
-		var menu_y: float = maxf(roster_bottom + margin, action_bar.position.y - margin - menu_height)
+		var menu_y: float = action_bar.position.y - margin - menu_height
 		_place_control(more_panel, Rect2(Vector2(menu_x, menu_y), Vector2(menu_width, menu_height)))
 	var left_panel_edge: float = safe_left
 	for left_panel in [status_backdrop, runtime_log_panel, shop_panel, more_panel]:
@@ -774,9 +811,9 @@ func _layout_ui(viewport_size: Vector2, safe_rect: Rect2) -> void:
 		if right_panel.is_visible_in_tree():
 			right_panel_edge = minf(right_panel_edge, right_panel.position.x)
 	var top_panel_edge: float = safe_top
-	for top_panel in [pet_roster_backdrop, message_label]:
-		if top_panel.is_visible_in_tree():
-			top_panel_edge = maxf(top_panel_edge, top_panel.position.y + top_panel.size.y)
+	for top_panel_control in [pet_roster_backdrop, message_label]:
+		if top_panel_control.is_visible_in_tree():
+			top_panel_edge = maxf(top_panel_edge, top_panel_control.position.y + top_panel_control.size.y)
 	var water_left: float = maxf(safe_left + margin, left_panel_edge + margin)
 	var water_right: float = minf(safe_right - margin, right_panel_edge - margin)
 	var water_top: float = maxf(safe_top + margin, top_panel_edge + margin)
@@ -815,6 +852,55 @@ func _actor_spawn_position(index: int, count: int) -> Vector2:
 	return Vector2((float(index) - float(count - 1) / 2.0) * spacing, 0.0)
 
 
+func _apply_soft_actor_avoidance(delta: float) -> void:
+	if delta <= 0.0:
+		return
+	var pet_ids: Array[String] = GameState.get_active_pet_ids()
+	var separation_speed: float = maxf(120.0, float(GameApp.get_balance_value("actor_swim_speed", 32.0)) * 4.0)
+	for first_index in range(pet_ids.size()):
+		var first_id: String = pet_ids[first_index]
+		var first_actor: Node2D = actors_by_id.get(first_id) as Node2D
+		if not is_instance_valid(first_actor) or str(first_actor.get("behavior_state")) != "idle_roam":
+			continue
+		for second_index in range(first_index + 1, pet_ids.size()):
+			var second_id: String = pet_ids[second_index]
+			var second_actor: Node2D = actors_by_id.get(second_id) as Node2D
+			if not is_instance_valid(second_actor) or str(second_actor.get("behavior_state")) != "idle_roam":
+				continue
+			var first_rect: Rect2 = first_actor.call("get_visual_body_rect_global")
+			var second_rect: Rect2 = second_actor.call("get_visual_body_rect_global")
+			var first_area: float = first_rect.size.x * first_rect.size.y
+			var second_area: float = second_rect.size.x * second_rect.size.y
+			var minimum_area: float = minf(first_area, second_area)
+			if minimum_area <= 0.0:
+				continue
+			var overlap: Rect2 = first_rect.intersection(second_rect)
+			var overlap_area: float = overlap.size.x * overlap.size.y
+			if overlap_area / minimum_area <= 0.5:
+				continue
+			var centers_delta: Vector2 = second_rect.get_center() - first_rect.get_center()
+			var separation_axis: Vector2
+			var overlap_on_axis: float
+			if absf(centers_delta.x) >= absf(centers_delta.y):
+				var horizontal_sign: float = signf(centers_delta.x)
+				if is_zero_approx(horizontal_sign):
+					horizontal_sign = 1.0 if first_id < second_id else -1.0
+				separation_axis = Vector2(horizontal_sign, 0.0)
+				overlap_on_axis = overlap.size.x
+			else:
+				var vertical_sign: float = signf(centers_delta.y)
+				if is_zero_approx(vertical_sign):
+					vertical_sign = 1.0 if first_id < second_id else -1.0
+				separation_axis = Vector2(0.0, vertical_sign)
+				overlap_on_axis = overlap.size.y
+			var correction: float = minf(overlap_on_axis * 0.6, separation_speed * delta)
+			var half_correction: Vector2 = separation_axis * correction * 0.5
+			first_actor.position = first_actor.call("_clamp_to_water", first_actor.position - half_correction)
+			second_actor.position = second_actor.call("_clamp_to_water", second_actor.position + half_correction)
+			first_actor.set("roam_target", first_actor.call("_clamp_to_water", first_actor.get("roam_target") - half_correction))
+			second_actor.set("roam_target", second_actor.call("_clamp_to_water", second_actor.get("roam_target") + half_correction))
+
+
 func _has_sick_active_pet() -> bool:
 	for pet_id in GameState.get_active_pet_ids():
 		if str(GameState.get_pet(pet_id).get("health", "healthy")) == "sick":
@@ -838,6 +924,44 @@ func _drop_basic_food(screen_position: Vector2, target_pet_id: String = "") -> D
 	RuntimeLogger.log_action("Basic food dropped: %s" % str(drop.get("token_id", "")))
 	_show_message("飼料正在下沉。")
 	return drop
+
+
+func _next_food_spawn_position() -> Vector2:
+	var columns: int = clampi(int(floor(active_water_rect.size.x / 96.0)), 1, 5)
+	var rows: int = ceili(float(GameState.MAX_ACTIVE_FOOD_DROPS) / float(columns))
+	var slot_count: int = maxi(1, columns * rows)
+	var starting_index: int = GameState.get_food_drops().size() % slot_count
+	var best_position: Vector2 = active_water_rect.get_center()
+	var best_clearance: float = -1.0
+	for offset in range(slot_count):
+		var slot_index: int = (starting_index + offset) % slot_count
+		var column: int = slot_index % columns
+		var row: int = slot_index / columns
+		var x_ratio: float = (float(column) + 0.5) / float(columns)
+		var y_ratio: float = 0.5 if rows == 1 else 0.25 + 0.5 * float(row) / float(rows - 1)
+		var candidate: Vector2 = Vector2(
+			active_water_rect.position.x + active_water_rect.size.x * x_ratio,
+			active_water_rect.position.y + active_water_rect.size.y * y_ratio
+		)
+		candidate = _clamp_food_interaction_point(candidate)
+		var nearest_clearance: float = INF
+		var overlaps_actor: bool = false
+		for pet_id in actors_by_id.keys():
+			var actor: Node2D = actors_by_id.get(str(pet_id)) as Node2D
+			if not is_instance_valid(actor):
+				continue
+			var body_rect: Rect2 = actor.call("get_visual_body_rect_global")
+			var marker_rect: Rect2 = Rect2(candidate - FOOD_DISPLAY_SIZE * 0.5, FOOD_DISPLAY_SIZE)
+			var separation: float = marker_rect.get_center().distance_to(body_rect.get_center()) - body_rect.size.length() * 0.5
+			nearest_clearance = minf(nearest_clearance, separation)
+			if marker_rect.intersects(body_rect.grow(12.0)):
+				overlaps_actor = true
+		if not overlaps_actor:
+			return candidate
+		if nearest_clearance > best_clearance:
+			best_clearance = nearest_clearance
+			best_position = candidate
+	return best_position
 
 
 func _update_food_drops(delta: float) -> void:
