@@ -5,9 +5,9 @@ extends Control
 var route_timer: Timer
 
 func _ready() -> void:
-	status_label.text = "Loading JellyCat..."
+	status_label.text = "正在載入水母喵……"
 	GameApp.boot()
-	status_label.text = "Ready"
+	status_label.text = "準備完成"
 	route_timer = Timer.new()
 	route_timer.one_shot = true
 	route_timer.wait_time = 0.25

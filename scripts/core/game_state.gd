@@ -6,7 +6,7 @@ const SAVE_VERSION: String = "0.2.0"
 const SCHEMA_VERSION: int = 2
 const STARTER_CAPACITY: int = 3
 const MAX_PET_CAPACITY: int = 12
-const MAX_ACTIVE_FOOD_DROPS: int = 3
+const MAX_ACTIVE_FOOD_DROPS: int = 10
 const STARTER_PERSONALITIES: Array[String] = ["curious", "affectionate", "sleepy"]
 
 var data: Dictionary = {}

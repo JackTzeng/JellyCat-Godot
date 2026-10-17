@@ -66,21 +66,21 @@ func refresh() -> void:
 	elif not egg.is_empty():
 		species_id = str(egg.get("species_id", "-"))
 	var lines: Array = [
-		"version: %s" % VersionManager.get_display_text(),
-		"current scene: %s" % SceneRouter.current_scene_path,
-		"selected pet: %s (%s)" % [pet_id, str(pet.get("personality_id", "-"))],
-		"cohabiting pets: %s" % str(GameState.get_active_pet_ids()),
-		"species_id: %s" % species_id,
-		"stage: %s" % stage,
-		"hunger: %s" % hunger,
-		"mood: %s" % mood,
-		"cleanliness: %s" % cleanliness,
-		"health: %s" % health,
-		"growth_exp: %s" % growth_exp,
-		"bubble_coin: %d" % GameState.get_currency("bubble_coin"),
-		"food_basic: ∞",
-		"cookie_basic: %d" % GameState.get_inventory_count("cookie_basic"),
-		"save path: %s" % SaveManager.get_save_path(),
-		"last_saved_at: %s" % GameState.get_timestamp("last_saved_at")
+		"版本：%s" % VersionManager.get_display_text(),
+		"目前場景：%s" % SceneRouter.current_scene_path,
+		"選取寵物：%s（%s）" % [pet_id, str(pet.get("personality_id", "-"))],
+		"同住寵物：%s" % str(GameState.get_active_pet_ids()),
+		"物種代碼：%s" % species_id,
+		"階段：%s" % stage,
+		"飢餓：%s" % hunger,
+		"心情：%s" % mood,
+		"清潔度：%s" % cleanliness,
+		"健康：%s" % health,
+		"成長經驗：%s" % growth_exp,
+		"泡泡幣：%d" % GameState.get_currency("bubble_coin"),
+		"飼料：∞",
+		"餅乾：%d" % GameState.get_inventory_count("cookie_basic"),
+		"存檔路徑：%s" % SaveManager.get_save_path(),
+		"最後存檔時間：%s" % GameState.get_timestamp("last_saved_at")
 	]
 	info_label.text = "\n".join(lines)

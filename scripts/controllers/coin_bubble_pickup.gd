@@ -28,6 +28,9 @@ func configure(drop: Dictionary) -> void:
 
 func _ready() -> void:
 	DOS_STYLE.style_button(self)
+	var transparent_style: StyleBox = StyleBoxEmpty.new()
+	for state_name in ["normal", "hover", "pressed", "focus", "disabled"]:
+		add_theme_stylebox_override(state_name, transparent_style)
 	text = ""
 	pressed.connect(_on_pressed)
 	button_down.connect(_show_hint_art)

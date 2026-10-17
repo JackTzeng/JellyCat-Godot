@@ -7,6 +7,7 @@ const DOS_STYLE = preload("res://scripts/ui/dos_style.gd")
 @onready var hint_label: Label = %HintLabel
 
 var route_timer: Timer
+var route_pending: bool = false
 
 func _ready() -> void:
 	DOS_STYLE.apply(self)
@@ -23,16 +24,21 @@ func _ready() -> void:
 
 
 func _on_egg_pressed() -> void:
+	if route_pending or not is_inside_tree():
+		return
 	var egg_id: String = GameState.get_active_egg_id()
 	var egg: Dictionary = HatchSystem.tap_egg(egg_id)
 	if egg.is_empty():
-		hint_label.text = "No egg is ready to hatch."
+		hint_label.text = "目前沒有可孵化的蛋。"
 		return
 	RuntimeLogger.log_action("Egg tapped: %d / %d" % [int(egg.get("current_clicks", 0)), int(egg.get("required_clicks", 10))])
 	_update_view()
 	if bool(egg.get("is_hatched", false)):
+		route_pending = true
+		egg_button.disabled = true
+		egg_button.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		RuntimeLogger.log_info("Egg hatched")
-		hint_label.text = "A new JellyCat joined the aquarium!"
+		hint_label.text = "新的水母喵加入水族箱了！"
 		route_timer = Timer.new()
 		route_timer.one_shot = true
 		route_timer.wait_time = 0.45
@@ -42,7 +48,7 @@ func _on_egg_pressed() -> void:
 
 
 func _route_to_aquarium() -> void:
-	if is_inside_tree():
+	if route_pending and is_inside_tree():
 		SceneRouter.go_aquarium()
 
 
@@ -52,4 +58,4 @@ func _update_view() -> void:
 		progress_label.text = "0 / 10"
 		return
 	progress_label.text = "%d / %d" % [int(egg.get("current_clicks", 0)), int(egg.get("required_clicks", 10))]
-	hint_label.text = "Tap the egg to hatch it. %d egg(s) remain in the nursery." % GameState.get_nursery_eggs().size()
+	hint_label.text = "輕點蛋殼以孵化；還有 %d 顆蛋。" % GameState.get_nursery_eggs().size()

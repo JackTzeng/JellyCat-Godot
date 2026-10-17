@@ -27,13 +27,21 @@ func _draw() -> void:
 		(logical_size.y - BACKGROUND_SIZE.y) * 0.5
 	)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE * float(integer_scale))
+	var tile_display_scale: float = BACKGROUND_SIZE.y / float(CENTER_TILE_TEXTURE.get_height())
+	var tile_display_size: Vector2 = Vector2(CENTER_TILE_TEXTURE.get_size()) * tile_display_scale
 	if background_origin.x > 0.0:
-		var left_extension: Rect2 = Rect2(Vector2(0.0, background_origin.y), Vector2(background_origin.x, BACKGROUND_SIZE.y))
-		var right_extension: Rect2 = Rect2(Vector2(background_origin.x + BACKGROUND_SIZE.x, background_origin.y), Vector2(background_origin.x, BACKGROUND_SIZE.y))
-		draw_texture_rect(CENTER_TILE_TEXTURE, left_extension, true)
-		draw_texture_rect(CENTER_TILE_TEXTURE, right_extension, true)
+		_draw_horizontal_extension(0.0, background_origin.x, background_origin.y, tile_display_size)
+		_draw_horizontal_extension(background_origin.x + BACKGROUND_SIZE.x, background_origin.x, background_origin.y, tile_display_size)
 	draw_texture_rect(BACKGROUND_TEXTURE, Rect2(background_origin, BACKGROUND_SIZE), false)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
+func _draw_horizontal_extension(start_x: float, width: float, top_y: float, tile_size: Vector2) -> void:
+	var right_edge: float = start_x + width
+	var tile_x: float = start_x
+	while tile_x < right_edge:
+		draw_texture_rect(CENTER_TILE_TEXTURE, Rect2(Vector2(tile_x, top_y), tile_size), false)
+		tile_x += tile_size.x
 
 static func make_panel(visual_unit: int = 1) -> StyleBoxFlat:
 	assert(visual_unit >= 1)

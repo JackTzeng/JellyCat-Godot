@@ -228,13 +228,28 @@ func _test_backup_rotation_timing() -> void:
 
 	var first_rotated_mtime: int = FileAccess.get_modified_time(oldest_backup)
 	var second_interval_start: int = Time.get_ticks_msec()
+	var second_interval_iterations: int = 0
+	var second_interval_invariant_checks: int = 0
 	all_saves_succeeded = true
 	while Time.get_ticks_msec() - second_interval_start < 61000:
 		GameState.set_currency("bubble_coin", amount)
 		all_saves_succeeded = SaveManager.save_game() and all_saves_succeeded
 		amount += 1
+		var checks_before_age_invariants: int = checks
 		_expect_backup_age_invariants("Continuous saves in the second rotation interval")
+		second_interval_iterations += 1
+		second_interval_invariant_checks += checks - checks_before_age_invariants
 		OS.delay_msec(1000)
+	_expect(
+		second_interval_invariant_checks == second_interval_iterations * 3,
+		"Every second-interval save retains all three backup-age invariant checks"
+	)
+	print("SAVE_DURABILITY_VARIABLE_LOOP second_interval_iterations=%d age_invariant_checks=%d expected_checks=%d checks_through_second_interval=%d" % [
+		second_interval_iterations,
+		second_interval_invariant_checks,
+		second_interval_iterations * 3,
+		checks,
+	])
 	_expect(all_saves_succeeded, "Continuous saves succeed through the second backup interval")
 	_expect(FileAccess.get_modified_time(oldest_backup) == first_rotated_mtime, "A rotated backup is not rewritten again within 60 seconds")
 	while int(Time.get_unix_time_from_system()) - first_rotated_mtime < SaveManager.BACKUP_ROTATION_SECONDS:

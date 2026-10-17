@@ -182,9 +182,15 @@ func _check_evolution_and_economy() -> void:
 	var pet_id: String = GameState.get_pet_ids()[0]
 	var pet: Dictionary = GameState.get_pet(pet_id)
 	pet["stage"] = 1
-	pet["growth_exp"] = 900
+	pet["growth_exp"] = 0
 	GameState.set_pet(pet_id, pet)
 	GameState.set_currency("bubble_coin", 0)
+	RuntimeLogger.clear()
+	_expect(not EvolutionSystem.evolve(pet_id), "Evolution below the required EXP is safely rejected")
+	var insufficient_evolution_log: String = RuntimeLogger.get_log_text()
+	_expect(insufficient_evolution_log.contains(" INFO Cannot evolve yet") and not insufficient_evolution_log.contains(" ERROR Cannot evolve yet"), "Insufficient EXP is logged at INFO, not ERROR severity")
+	pet["growth_exp"] = 900
+	GameState.set_pet(pet_id, pet)
 	for expected_stage in range(2, 6):
 		_expect(EvolutionSystem.can_evolve(pet_id), "%s can evolve to Stage %d" % [pet_id, expected_stage])
 		_expect(EvolutionSystem.evolve(pet_id), "Evolution reaches Stage %d" % expected_stage)

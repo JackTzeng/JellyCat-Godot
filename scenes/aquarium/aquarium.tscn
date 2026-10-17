@@ -51,12 +51,7 @@ color = Color(0.02, 0.07, 0.1, 0.96)
 unique_name_in_owner = true
 layout_mode = 1
 theme_override_constants/separation = 8
-
-[node name="RenameButton" type="Button" parent="PetRoster"]
-unique_name_in_owner = true
-layout_mode = 2
-custom_minimum_size = Vector2(112, 56)
-text = "Rename"
+alignment = 1
 
 [node name="StatusBackdrop" type="ColorRect" parent="."]
 unique_name_in_owner = true
@@ -84,21 +79,38 @@ theme_override_constants/separation = 2
 [node name="CoinLabel" type="Label" parent="TopPanel"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "Bubble Coin: 0"
+text = "泡泡幣：0"
 horizontal_alignment = 1
 theme_override_font_sizes/font_size = 22
+
+[node name="PetInfoActions" type="HBoxContainer" parent="TopPanel"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="PetInfoButton" type="Button" parent="TopPanel/PetInfoActions"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+text = "寵物資料"
+
+[node name="RenameButton" type="Button" parent="TopPanel/PetInfoActions"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+size_flags_horizontal = 3
+text = "改名"
 
 [node name="StageLabel" type="Label" parent="TopPanel"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "JellyCat"
+text = "寵物"
 horizontal_alignment = 1
 theme_override_font_sizes/font_size = 24
 
 [node name="HungerLabel" type="Label" parent="TopPanel"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "Hunger: 0 / 100"
+text = "飢餓：0 / 100"
 horizontal_alignment = 1
 
 [node name="HungerBar" type="ProgressBar" parent="TopPanel"]
@@ -111,7 +123,7 @@ show_percentage = false
 [node name="MoodLabel" type="Label" parent="TopPanel"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "Mood: 0 / 100"
+text = "心情：0 / 100"
 horizontal_alignment = 1
 
 [node name="MoodBar" type="ProgressBar" parent="TopPanel"]
@@ -124,7 +136,7 @@ show_percentage = false
 [node name="CleanlinessLabel" type="Label" parent="TopPanel"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "Cleanliness: 0 / 100"
+text = "清潔度：0 / 100"
 horizontal_alignment = 1
 
 [node name="CleanBar" type="ProgressBar" parent="TopPanel"]
@@ -137,25 +149,25 @@ show_percentage = false
 [node name="HealthLabel" type="Label" parent="TopPanel"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "Health: healthy"
+text = "健康：正常"
 horizontal_alignment = 1
 
 [node name="ExpLabel" type="Label" parent="TopPanel"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "Growth EXP: 0"
+text = "成長經驗：0"
 horizontal_alignment = 1
 
 [node name="TouchExpLabel" type="Label" parent="TopPanel"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "Touch EXP: 0/20 | Ready"
+text = "摸摸經驗：0/20｜可累積"
 horizontal_alignment = 1
 
 [node name="EvolutionLabel" type="Label" parent="TopPanel"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "Evolution: 0 / 0"
+text = "進化：0 / 0"
 horizontal_alignment = 1
 
 [node name="InventoryBackdrop" type="ColorRect" parent="."]
@@ -179,7 +191,7 @@ offset_left = 1200.0
 offset_top = 48.0
 offset_right = -48.0
 offset_bottom = 164.0
-text = "Food x0\nCookie x0\nMedicine x0"
+text = "飼料 ∞\n餅乾 ×0\n藥水 ×0"
 
 [node name="RuntimeLogPanel" parent="." instance=ExtResource("3_log")]
 unique_name_in_owner = true
@@ -201,7 +213,7 @@ offset_left = 880.0
 offset_top = 532.0
 offset_right = -28.0
 offset_bottom = 574.0
-text = "Runtime log is visible below the aquarium."
+text = "歡迎回來，水母喵！"
 horizontal_alignment = 1
 
 [node name="ActionBackdrop" type="ColorRect" parent="."]
@@ -237,72 +249,83 @@ theme_override_constants/v_separation = 12
 unique_name_in_owner = true
 layout_mode = 2
 custom_minimum_size = Vector2(310, 50)
-text = "Drop Food"
-
-[node name="CookieButton" type="Button" parent="ActionBar"]
-unique_name_in_owner = true
-layout_mode = 2
-custom_minimum_size = Vector2(310, 50)
-text = "Cookie"
+text = "投食"
 
 [node name="TouchButton" type="Button" parent="ActionBar"]
 unique_name_in_owner = true
 layout_mode = 2
 custom_minimum_size = Vector2(310, 50)
-text = "Touch"
-
-[node name="CleanButton" type="Button" parent="ActionBar"]
-unique_name_in_owner = true
-layout_mode = 2
-custom_minimum_size = Vector2(310, 50)
-text = "Clean"
-
-[node name="MedicineButton" type="Button" parent="ActionBar"]
-unique_name_in_owner = true
-layout_mode = 2
-custom_minimum_size = Vector2(310, 50)
-text = "Medicine"
-
-[node name="EvolveButton" type="Button" parent="ActionBar"]
-unique_name_in_owner = true
-layout_mode = 2
-custom_minimum_size = Vector2(310, 50)
-text = "Evolve"
-
-[node name="ShopButton" type="Button" parent="ActionBar"]
-unique_name_in_owner = true
-layout_mode = 2
-custom_minimum_size = Vector2(310, 50)
-text = "Shop"
-
-[node name="DailyFoodButton" type="Button" parent="ActionBar"]
-unique_name_in_owner = true
-layout_mode = 2
-custom_minimum_size = Vector2(310, 50)
-text = "Daily Food"
-
-[node name="LogToggleButton" type="Button" parent="ActionBar"]
-unique_name_in_owner = true
-layout_mode = 2
-custom_minimum_size = Vector2(310, 50)
-text = "Hide Log"
+text = "摸摸"
 
 [node name="NurseryButton" type="Button" parent="ActionBar"]
 unique_name_in_owner = true
 layout_mode = 2
-custom_minimum_size = Vector2(310, 56)
-text = "Nursery"
+custom_minimum_size = Vector2(310, 50)
+text = "孵蛋（3）"
 
-[node name="RenameDialog" type="ConfirmationDialog" parent="."]
+[node name="MoreButton" type="Button" parent="ActionBar"]
 unique_name_in_owner = true
-title = "Rename JellyCat"
-dialog_text = "Enter a name for the selected JellyCat."
+layout_mode = 2
+custom_minimum_size = Vector2(310, 50)
+text = "更多"
 
-[node name="NicknameEdit" type="LineEdit" parent="RenameDialog"]
+[node name="MorePanel" type="PanelContainer" parent="."]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(360, 56)
-max_length = 18
-placeholder_text = "JellyCat"
+visible = false
+layout_mode = 1
+mouse_filter = 0
+
+[node name="MoreContent" type="VBoxContainer" parent="MorePanel"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="MoreTitle" type="Label" parent="MorePanel/MoreContent"]
+layout_mode = 2
+text = "更多操作"
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 20
+
+[node name="MoreItems" type="GridContainer" parent="MorePanel/MoreContent"]
+unique_name_in_owner = true
+layout_mode = 2
+columns = 2
+theme_override_constants/h_separation = 8
+theme_override_constants/v_separation = 8
+
+[node name="CookieButton" type="Button" parent="MorePanel/MoreContent/MoreItems"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "餅乾"
+
+[node name="CleanButton" type="Button" parent="MorePanel/MoreContent/MoreItems"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "清潔"
+
+[node name="MedicineButton" type="Button" parent="MorePanel/MoreContent/MoreItems"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "藥水"
+
+[node name="EvolveButton" type="Button" parent="MorePanel/MoreContent/MoreItems"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "進化"
+
+[node name="ShopButton" type="Button" parent="MorePanel/MoreContent/MoreItems"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "商店"
+
+[node name="DailyFoodButton" type="Button" parent="MorePanel/MoreContent/MoreItems"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "每日飼料"
+
+[node name="LogToggleButton" type="Button" parent="MorePanel/MoreContent/MoreItems"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "日誌"
 
 [node name="ModalOverlay" type="Control" parent="."]
 unique_name_in_owner = true
@@ -321,6 +344,45 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 mouse_filter = 0
 color = Color(0.0, 0.0, 0.0, 0.32)
+
+[node name="RenamePanel" type="PanelContainer" parent="ModalOverlay"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+mouse_filter = 0
+
+[node name="RenameContent" type="VBoxContainer" parent="ModalOverlay/RenamePanel"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="RenameTitle" type="Label" parent="ModalOverlay/RenamePanel/RenameContent"]
+layout_mode = 2
+text = "為水母喵改名"
+horizontal_alignment = 1
+
+[node name="NicknameEdit" type="LineEdit" parent="ModalOverlay/RenamePanel/RenameContent"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(360, 56)
+max_length = 18
+placeholder_text = "輸入寵物名字"
+virtual_keyboard_enabled = true
+
+[node name="RenameActions" type="HBoxContainer" parent="ModalOverlay/RenamePanel/RenameContent"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RenameConfirmButton" type="Button" parent="ModalOverlay/RenamePanel/RenameContent/RenameActions"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+text = "確認"
+
+[node name="RenameCancelButton" type="Button" parent="ModalOverlay/RenamePanel/RenameContent/RenameActions"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+text = "取消"
 
 [node name="ShopPanel" parent="ModalOverlay" instance=ExtResource("5_shop")]
 unique_name_in_owner = true

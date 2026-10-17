@@ -24,7 +24,7 @@ static func evolve(pet_id: String) -> bool:
 		RuntimeLogger.log_info_throttled("already_max_stage", "Already max stage")
 		return false
 	if int(pet.get("growth_exp", 0)) < int(next_stage.get("required_growth_exp", 0)):
-		RuntimeLogger.log_error_throttled("cannot_evolve_yet", "Cannot evolve yet")
+		RuntimeLogger.log_info_throttled("cannot_evolve_yet", "Cannot evolve yet")
 		return false
 	var old_stage: int = int(pet.get("stage", 1))
 	pet["stage"] = old_stage + 1
