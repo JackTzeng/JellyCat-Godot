@@ -35,6 +35,10 @@ var wobble_tweens: Dictionary = {}
 var hatch_locked: bool = false
 var hatch_committed: bool = false
 var hatch_egg_id: String = ""
+var egg_pixel_output_scale: Vector2 = Vector2.ONE
+var egg_pixel_card_size: Vector2 = Vector2.ZERO
+var egg_pixel_icon_size: Vector2 = Vector2.ZERO
+var egg_pixel_alignment_pending: bool = false
 
 
 func _ready() -> void:
@@ -100,6 +104,7 @@ func _build_ui() -> void:
 	grid_center.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	grid_center.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	egg_scroll.add_child(grid_center)
+	egg_scroll.get_v_scroll_bar().value_changed.connect(_on_egg_scroll_changed)
 
 	egg_grid = GridContainer.new()
 	egg_grid.name = "EggGrid"
@@ -595,16 +600,19 @@ func _layout_ui(viewport_size: Vector2, safe_rect: Rect2, touch_target_override:
 	egg_grid.columns = columns
 	var desired_card_size: Vector2 = Vector2(card_width, maxf(CARD_MIN_HEIGHT, touch_target * 2.55))
 	var pixel_card_size: Vector2 = _integer_pixel_art_size(Vector2(CARD_BACKGROUND.get_size()), desired_card_size, output_scale, true)
+	var pixel_icon_size: Vector2 = _integer_pixel_art_size(Vector2(EGG_IDLE.get_size()), EGG_ART_BASE_SIZE, output_scale)
 	for card_data in egg_cards_by_id.values():
 		var card: Button = (card_data as Dictionary).get("button") as Button
 		var icon: TextureRect = (card_data as Dictionary).get("icon") as TextureRect
 		var icon_slot: Control = (card_data as Dictionary).get("icon_slot") as Control
 		card.custom_minimum_size = pixel_card_size
-		var icon_size: Vector2 = _integer_pixel_art_size(Vector2(icon.texture.get_size()), EGG_ART_BASE_SIZE, output_scale)
-		icon.custom_minimum_size = icon_size
-		icon.size = icon_size
-		icon_slot.custom_minimum_size = icon_size
+		icon.custom_minimum_size = pixel_icon_size
+		icon.size = pixel_icon_size
+		icon_slot.custom_minimum_size = pixel_icon_size
 		icon.pivot_offset = icon.size * 0.5
+	egg_pixel_output_scale = output_scale
+	egg_pixel_card_size = pixel_card_size
+	egg_pixel_icon_size = pixel_icon_size
 	var aligned_scroll_top: float = scroll_top
 	var aligned_scroll_left: float = scroll_left
 	var aligned_scroll_height: float = maxf(1.0, scroll_bottom - scroll_top)
@@ -626,14 +634,44 @@ func _layout_ui(viewport_size: Vector2, safe_rect: Rect2, touch_target_override:
 	name_edit.custom_minimum_size.x = maxf(112.0, panel_width - 48.0)
 	var panel_height: float = minf(maxf(200.0, name_panel.get_combined_minimum_size().y), maxf(1.0, safe_height - margin * 2.0))
 	_place_control(name_panel, Rect2(Vector2(safe_left + (safe_width - panel_width) * 0.5, safe_top + (safe_height - panel_height) * 0.5), Vector2(panel_width, panel_height)))
-	call_deferred("_align_egg_artworks_after_layout", output_scale)
+	_queue_egg_artwork_alignment()
 
 
-func _align_egg_artworks_after_layout(output_scale: Vector2) -> void:
-	if output_scale.x <= 0.0 or output_scale.y <= 0.0:
+func _on_egg_scroll_changed(_value: float) -> void:
+	_queue_egg_artwork_alignment()
+
+
+func _queue_egg_artwork_alignment() -> void:
+	if egg_pixel_alignment_pending or egg_pixel_output_scale.x <= 0.0 or egg_pixel_output_scale.y <= 0.0:
+		return
+	egg_pixel_alignment_pending = true
+	call_deferred("_align_egg_artworks_after_layout")
+
+
+func _align_egg_artworks_after_layout() -> void:
+	if get_tree() == null:
+		egg_pixel_alignment_pending = false
 		return
 	await get_tree().process_frame
 	if not is_inside_tree():
+		egg_pixel_alignment_pending = false
+		return
+	var output_scale: Vector2 = egg_pixel_output_scale
+	for card_data_variant in egg_cards_by_id.values():
+		var card_data: Dictionary = card_data_variant as Dictionary
+		var card: Button = card_data.get("button") as Button
+		var background: TextureRect = card_data.get("background") as TextureRect
+		var icon_slot: Control = card_data.get("icon_slot") as Control
+		var icon: TextureRect = card_data.get("icon") as TextureRect
+		if not is_instance_valid(card) or not is_instance_valid(background) or not is_instance_valid(icon_slot) or not is_instance_valid(icon):
+			continue
+		if egg_pixel_card_size.x <= 0.0 or egg_pixel_card_size.y <= 0.0:
+			continue
+		card.size = egg_pixel_card_size
+		card.global_position = _snap_global_position_to_output_pixels(card.global_position, output_scale)
+	await get_tree().process_frame
+	if not is_inside_tree():
+		egg_pixel_alignment_pending = false
 		return
 	for card_data_variant in egg_cards_by_id.values():
 		var card_data: Dictionary = card_data_variant as Dictionary
@@ -641,18 +679,20 @@ func _align_egg_artworks_after_layout(output_scale: Vector2) -> void:
 		var icon: TextureRect = card_data.get("icon") as TextureRect
 		if not is_instance_valid(icon_slot) or not is_instance_valid(icon):
 			continue
-		var icon_size: Vector2 = icon_slot.size
-		if icon_size.x <= 0.0 or icon_size.y <= 0.0:
-			icon_size = icon_slot.custom_minimum_size
-		if icon_size.x <= 0.0 or icon_size.y <= 0.0:
+		if egg_pixel_icon_size.x <= 0.0 or egg_pixel_icon_size.y <= 0.0:
 			continue
-		icon.size = icon_size
-		var slot_position: Vector2 = icon_slot.global_position
-		icon.global_position = Vector2(
-			roundf(slot_position.x * output_scale.x) / output_scale.x,
-			roundf(slot_position.y * output_scale.y) / output_scale.y
-		)
+		var slot_center: Vector2 = icon_slot.get_global_rect().get_center()
+		icon.size = egg_pixel_icon_size
+		icon.global_position = _snap_global_position_to_output_pixels(slot_center - egg_pixel_icon_size * 0.5, output_scale)
 		icon.visible = true
+	egg_pixel_alignment_pending = false
+
+
+func _snap_global_position_to_output_pixels(global_position: Vector2, output_scale: Vector2) -> Vector2:
+	return Vector2(
+		roundf(global_position.x * output_scale.x) / output_scale.x,
+		roundf(global_position.y * output_scale.y) / output_scale.y
+	)
 
 
 func _place_control(control: Control, target_rect: Rect2) -> void:

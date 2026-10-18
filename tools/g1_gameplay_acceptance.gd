@@ -99,12 +99,18 @@ func _run() -> void:
 				{"name": "1600x720-160dpi", "viewport": Vector2(1600.0, 720.0), "safe": Rect2(Vector2(24.0, 12.0), Vector2(1552.0, 696.0)), "dpi": 160.0},
 				{"name": "1600x720-320dpi", "viewport": Vector2(1600.0, 720.0), "safe": Rect2(Vector2(24.0, 12.0), Vector2(1552.0, 696.0)), "dpi": 320.0},
 			]
-			var nursery_three_card_matrix: Dictionary = await _test_nursery_three_card_scroll(nursery_ui, GameState.get_nursery_egg(other_nursery_egg_id), nursery_pixel_layouts)
+			var nursery_fractional_pixel_layouts: Array[Dictionary] = _get_nursery_fractional_pixel_layouts()
+			var nursery_all_pixel_layouts: Array[Dictionary] = nursery_pixel_layouts.duplicate()
+			nursery_all_pixel_layouts.append_array(nursery_fractional_pixel_layouts)
+			var nursery_three_card_matrix: Dictionary = await _test_nursery_three_card_scroll(nursery_ui, GameState.get_nursery_egg(other_nursery_egg_id), nursery_all_pixel_layouts)
 			var nursery_third_card_scrollable: bool = bool(nursery_three_card_matrix.get("scrollable", false))
 			_expect(nursery_third_card_scrollable, "Nursery three-card overflow remains scrollable to the third card")
 			var nursery_all_egg_pixel_checks: int = int(nursery_three_card_matrix.get("geometry_measurements", 0))
 			var nursery_all_egg_pixel_geometry_valid: bool = bool(nursery_three_card_matrix.get("geometry_valid", false))
-			_expect(nursery_all_egg_pixel_geometry_valid and nursery_all_egg_pixel_checks == nursery_pixel_layouts.size() * 6, "All three Nursery egg draw rectangles stay integer-aligned before and after scrolling in all six viewport/DPI cases (%d measurements)" % nursery_all_egg_pixel_checks)
+			_expect(nursery_all_egg_pixel_geometry_valid and nursery_all_egg_pixel_checks == nursery_all_pixel_layouts.size() * 6, "All three Nursery cards and eggs stay integer-aligned before and after scrolling in six integer and six expanded-fractional viewport/DPI cases (%d measurements)" % nursery_all_egg_pixel_checks)
+			var nursery_fractional_geometry_valid: bool = bool(nursery_three_card_matrix.get("fractional_geometry_valid", false))
+			var nursery_fractional_pixel_checks: int = int(nursery_three_card_matrix.get("fractional_geometry_measurements", 0))
+			_expect(nursery_fractional_geometry_valid and nursery_fractional_pixel_checks == nursery_fractional_pixel_layouts.size() * 6, "All three Nursery cards and eggs retain exact final physical-pixel edges at true fractional expand scales before/after scroll (%d measurements)" % nursery_fractional_pixel_checks)
 			nursery_cards = nursery_ui.get("egg_cards_by_id") as Dictionary
 			var active_nursery_card: Dictionary = nursery_cards.get(active_nursery_egg_id, {}) as Dictionary
 			var active_nursery_button: Button = active_nursery_card.get("button") as Button
@@ -128,8 +134,8 @@ func _run() -> void:
 				var pixel_output_scale: Vector2 = Vector2(pixel_dpi / 160.0, pixel_dpi / 160.0)
 				var pixel_touch_target: float = 56.0 * pixel_dpi / 160.0
 				nursery_ui.call("_layout_ui", pixel_viewport, pixel_case["safe"], pixel_touch_target, pixel_viewport * pixel_output_scale)
-				await get_tree().process_frame
-				await get_tree().process_frame
+				for _pixel_layout_frame in range(4):
+					await get_tree().process_frame
 				var actual_card_rect: Rect2 = active_nursery_button.get_global_rect()
 				var actual_background_rect: Rect2 = active_nursery_background.get_global_rect()
 				var actual_egg_rect: Rect2 = active_nursery_icon.get_global_rect()
@@ -1989,6 +1995,31 @@ func _control_inside_safe(control: Control, safe_rect: Rect2) -> bool:
 	)
 
 
+func _get_nursery_fractional_pixel_layouts() -> Array[Dictionary]:
+	var layouts: Array[Dictionary] = []
+	var base_viewport_size: Vector2 = Vector2(1672.0, 941.0)
+	var window_cases: Array[Dictionary] = [
+		{"name": "1280x720", "window_size": Vector2(1280.0, 720.0)},
+		{"name": "1280x591", "window_size": Vector2(1280.0, 591.0)},
+		{"name": "1600x720", "window_size": Vector2(1600.0, 720.0)},
+	]
+	for window_case in window_cases:
+		var window_size: Vector2 = window_case.get("window_size", Vector2.ZERO)
+		var output_scale: float = minf(window_size.x / base_viewport_size.x, window_size.y / base_viewport_size.y)
+		var expanded_viewport_size: Vector2 = window_size / output_scale
+		for dpi in [160.0, 320.0]:
+			layouts.append({
+				"name": "%s-%ddpi-expanded-fractional" % [str(window_case.get("name", "window")), int(dpi)],
+				"viewport": expanded_viewport_size,
+				"safe": Rect2(Vector2.ZERO, expanded_viewport_size),
+				"output_size": window_size,
+				"dpi": dpi,
+				"touch_target": 56.0 * dpi / (160.0 * output_scale),
+				"fractional": true,
+			})
+	return layouts
+
+
 func _test_nursery_three_card_scroll(nursery_ui: Control, source_egg: Dictionary, pixel_layouts: Array[Dictionary]) -> Dictionary:
 	var probe_egg_id: String = "g1_three_card_scroll_probe"
 	var probe_egg: Dictionary = source_egg.duplicate(true)
@@ -2005,74 +2036,118 @@ func _test_nursery_three_card_scroll(nursery_ui: Control, source_egg: Dictionary
 	var cards: Dictionary = nursery_ui.get("egg_cards_by_id") as Dictionary
 	var geometry_valid: bool = true
 	var geometry_measurements: int = 0
+	var integer_geometry_valid: bool = true
+	var integer_geometry_measurements: int = 0
+	var fractional_geometry_valid: bool = true
+	var fractional_geometry_measurements: int = 0
 	var third_card_scrollable: bool = true
 	for pixel_case in pixel_layouts:
 		var pixel_viewport: Vector2 = pixel_case["viewport"]
 		var pixel_dpi: float = float(pixel_case["dpi"])
-		var pixel_output_scale: Vector2 = Vector2(pixel_dpi / 160.0, pixel_dpi / 160.0)
-		var pixel_touch_target: float = 56.0 * pixel_dpi / 160.0
-		nursery_ui.call("_layout_ui", pixel_viewport, pixel_case["safe"], pixel_touch_target, pixel_viewport * pixel_output_scale)
-		await get_tree().process_frame
-		await get_tree().process_frame
+		var default_output_scale: Vector2 = Vector2(pixel_dpi / 160.0, pixel_dpi / 160.0)
+		var pixel_output_size: Vector2 = pixel_case.get("output_size", pixel_viewport * default_output_scale)
+		var pixel_output_scale: Vector2 = pixel_output_size / pixel_viewport
+		var pixel_touch_target: float = float(pixel_case.get("touch_target", 56.0 * pixel_dpi / 160.0))
+		var fractional_case: bool = bool(pixel_case.get("fractional", false))
+		nursery_ui.call("_layout_ui", pixel_viewport, pixel_case["safe"], pixel_touch_target, pixel_output_size)
+		for _layout_frame in range(4):
+			await get_tree().process_frame
 		cards = nursery_ui.get("egg_cards_by_id") as Dictionary
 		var case_name: String = str(pixel_case["name"])
+		var case_geometry_valid: bool = true
+		var before_result: Dictionary = {"valid": false, "checks": 0}
+		var after_result: Dictionary = {"valid": false, "checks": 0}
+		var before_checks: int = 0
+		var third_rect_before: Rect2 = Rect2()
+		var third_rect_after: Rect2 = Rect2()
+		var scroll_rect: Rect2 = egg_scroll.get_global_rect()
+		var scroll_range: float = 0.0
+		var scroll_case_valid: bool = false
 		if cards.size() != 3 or egg_grid.columns != 2:
-			geometry_valid = false
+			case_geometry_valid = false
 			third_card_scrollable = false
 			print("G1_NURSERY_EGG_PIXEL_CASE_FAIL %s expected=3-eggs/2-columns actual=%d/%d" % [case_name, cards.size(), egg_grid.columns])
-			continue
-		var first_button: Button = egg_grid.get_child(0) as Button
-		var second_button: Button = egg_grid.get_child(1) as Button
-		var first_rect: Rect2 = first_button.get_global_rect()
-		var second_rect: Rect2 = second_button.get_global_rect()
-		var second_column_valid: bool = second_rect.position.x > first_rect.position.x and is_equal_approx(second_rect.position.y, first_rect.position.y)
-		geometry_valid = geometry_valid and second_column_valid
-		var before_result: Dictionary = _measure_nursery_card_pixel_geometry(cards, pixel_output_scale, case_name + ":before-scroll")
-		geometry_valid = geometry_valid and bool(before_result.get("valid", false)) and second_column_valid
-		geometry_measurements += int(before_result.get("checks", 0))
-		var third_button: Button = (cards.get(probe_egg_id, {}) as Dictionary).get("button") as Button
-		var scroll_rect: Rect2 = egg_scroll.get_global_rect()
-		var third_rect_before: Rect2 = third_button.get_global_rect() if is_instance_valid(third_button) else Rect2()
-		var scroll_range: float = maxf(0.0, egg_scroll.get_v_scroll_bar().max_value - egg_scroll.get_v_scroll_bar().page)
-		var overflow_is_visible: bool = scroll_range > 0.0 and third_rect_before.end.y > scroll_rect.end.y
-		var third_rect_after: Rect2 = Rect2()
-		var after_result: Dictionary = {"valid": false, "checks": 0}
-		if overflow_is_visible:
-			egg_scroll.scroll_vertical = ceili(scroll_range)
-			await get_tree().process_frame
-			await get_tree().process_frame
-			third_rect_after = third_button.get_global_rect()
-			var third_reached: bool = third_rect_after.position.y >= scroll_rect.position.y - 1.0
-			third_reached = third_reached and third_rect_after.end.y <= scroll_rect.end.y + 1.0
-			third_reached = third_reached and third_rect_after.position.x >= scroll_rect.position.x
-			third_reached = third_reached and third_rect_after.end.x <= scroll_rect.end.x
-			third_reached = third_reached and third_rect_after.position.y < third_rect_before.position.y
-			third_card_scrollable = third_card_scrollable and third_reached
-			after_result = _measure_nursery_card_pixel_geometry(cards, pixel_output_scale, case_name + ":after-scroll")
-			geometry_valid = geometry_valid and third_reached and bool(after_result.get("valid", false))
-			geometry_measurements += int(after_result.get("checks", 0))
 		else:
-			third_card_scrollable = false
-			geometry_valid = false
-		print("G1_NURSERY_EGG_PIXEL_CASE %s columns=%d second_column=%s range=%.2f third_before=%s third_after=%s viewport=%s" % [case_name, egg_grid.columns, str(second_column_valid), scroll_range, str(third_rect_before), str(third_rect_after), str(scroll_rect)])
+			var first_button: Button = egg_grid.get_child(0) as Button
+			var second_button: Button = egg_grid.get_child(1) as Button
+			var first_rect: Rect2 = first_button.get_global_rect()
+			var second_rect: Rect2 = second_button.get_global_rect()
+			var second_column_valid: bool = second_rect.position.x > first_rect.position.x and is_equal_approx(second_rect.position.y, first_rect.position.y)
+			case_geometry_valid = case_geometry_valid and second_column_valid
+			before_result = _measure_nursery_card_pixel_geometry(cards, pixel_output_scale, pixel_touch_target, case_name + ":before-scroll")
+			case_geometry_valid = case_geometry_valid and bool(before_result.get("valid", false)) and second_column_valid
+			before_checks = int(before_result.get("checks", 0))
+			var third_button: Button = (cards.get(probe_egg_id, {}) as Dictionary).get("button") as Button
+			third_rect_before = third_button.get_global_rect() if is_instance_valid(third_button) else Rect2()
+			scroll_range = maxf(0.0, egg_scroll.get_v_scroll_bar().max_value - egg_scroll.get_v_scroll_bar().page)
+			if scroll_range > 0.0:
+				egg_scroll.scroll_vertical = ceili(scroll_range)
+				for _scroll_frame in range(4):
+					await get_tree().process_frame
+				third_rect_after = third_button.get_global_rect()
+				scroll_case_valid = third_rect_after.position.y >= scroll_rect.position.y - 1.0
+				scroll_case_valid = scroll_case_valid and third_rect_after.end.y <= scroll_rect.end.y + 1.0
+				scroll_case_valid = scroll_case_valid and third_rect_after.position.x >= scroll_rect.position.x
+				scroll_case_valid = scroll_case_valid and third_rect_after.end.x <= scroll_rect.end.x
+				scroll_case_valid = scroll_case_valid and third_rect_after.position.y < third_rect_before.position.y
+				third_card_scrollable = third_card_scrollable and scroll_case_valid
+				after_result = _measure_nursery_card_pixel_geometry(cards, pixel_output_scale, pixel_touch_target, case_name + ":after-scroll")
+				case_geometry_valid = case_geometry_valid and scroll_case_valid and bool(after_result.get("valid", false))
+			else:
+				# Some 2x three-card layouts fit fully; verify their no-op post-scroll state too.
+				egg_scroll.scroll_vertical = 0
+				for _no_scroll_frame in range(4):
+					await get_tree().process_frame
+				third_rect_after = third_button.get_global_rect()
+				scroll_case_valid = third_rect_before.position.y >= scroll_rect.position.y and third_rect_before.end.y <= scroll_rect.end.y
+				scroll_case_valid = scroll_case_valid and third_rect_after.position.y >= scroll_rect.position.y and third_rect_after.end.y <= scroll_rect.end.y
+				third_card_scrollable = third_card_scrollable and scroll_case_valid
+				after_result = _measure_nursery_card_pixel_geometry(cards, pixel_output_scale, pixel_touch_target, case_name + ":no-scroll-range")
+				case_geometry_valid = case_geometry_valid and scroll_case_valid and bool(after_result.get("valid", false))
+		var fractional_scale_valid: bool = true
+		if fractional_case:
+			fractional_scale_valid = not is_equal_approx(pixel_output_scale.x, roundf(pixel_output_scale.x))
+			fractional_scale_valid = fractional_scale_valid and not is_equal_approx(pixel_output_scale.y, roundf(pixel_output_scale.y))
+		case_geometry_valid = case_geometry_valid and fractional_scale_valid
+		case_geometry_valid = case_geometry_valid and int(before_result.get("checks", 0)) == 3 and int(after_result.get("checks", 0)) == 3
+		var case_checks: int = before_checks + int(after_result.get("checks", 0))
+		geometry_valid = geometry_valid and case_geometry_valid
+		geometry_measurements += case_checks
+		if fractional_case:
+			fractional_geometry_valid = fractional_geometry_valid and case_geometry_valid
+			fractional_geometry_measurements += case_checks
+		else:
+			integer_geometry_valid = integer_geometry_valid and case_geometry_valid
+			integer_geometry_measurements += case_checks
+		print("G1_NURSERY_EGG_PIXEL_CASE %s scale=%s viewport=%s columns=%d range=%.2f third_before=%s third_after=%s scroll_valid=%s result=%s" % [case_name, str(pixel_output_scale), str(pixel_viewport), egg_grid.columns, scroll_range, str(third_rect_before), str(third_rect_after), str(scroll_case_valid), str(case_geometry_valid)])
 		egg_scroll.scroll_vertical = 0
-		await get_tree().process_frame
-		await get_tree().process_frame
+		for _reset_scroll_frame in range(4):
+			await get_tree().process_frame
 	var probe_removed: bool = GameState.remove_nursery_egg(probe_egg_id)
 	nursery_ui.call("_refresh_cards")
-	await get_tree().process_frame
-	await get_tree().process_frame
+	for _cleanup_frame in range(4):
+		await get_tree().process_frame
 	return {
 		"scrollable": third_card_scrollable and probe_removed,
 		"geometry_valid": geometry_valid and probe_removed,
 		"geometry_measurements": geometry_measurements,
+		"integer_geometry_valid": integer_geometry_valid and probe_removed,
+		"integer_geometry_measurements": integer_geometry_measurements,
+		"fractional_geometry_valid": fractional_geometry_valid and probe_removed,
+		"fractional_geometry_measurements": fractional_geometry_measurements,
 		"probe_removed": probe_removed
 	}
 
 
-func _measure_nursery_card_pixel_geometry(cards: Dictionary, output_scale: Vector2, sample_name: String) -> Dictionary:
+func _measure_nursery_card_pixel_geometry(cards: Dictionary, output_scale: Vector2, touch_target: float, sample_name: String) -> Dictionary:
 	var valid: bool = cards.size() == 3
 	var checks: int = 0
+	var desired_card_width: float = maxf(256.0, touch_target * 2.25)
+	var desired_card_height: float = maxf(320.0, touch_target * 2.55)
+	var required_card_scale: float = maxf(desired_card_width * output_scale.x / 96.0, desired_card_height * output_scale.y / 112.0)
+	var expected_card_scale: int = maxi(1, ceili(required_card_scale - 0.000001))
+	var required_icon_scale: float = maxf(128.0 * output_scale.x / 64.0, 128.0 * output_scale.y / 64.0)
+	var expected_icon_scale: int = maxi(1, roundi(required_icon_scale))
 	for egg_id_variant in cards.keys():
 		var egg_id: String = str(egg_id_variant)
 		var card_data: Dictionary = cards.get(egg_id, {}) as Dictionary
@@ -2096,18 +2171,18 @@ func _measure_nursery_card_pixel_geometry(cards: Dictionary, output_scale: Vecto
 		card_valid = card_valid and background_rect.position.is_equal_approx(card_rect.position) and background_rect.size.is_equal_approx(card_rect.size)
 		card_valid = card_valid and card_rect.size.x >= 256.0 and card_rect.size.y >= 320.0
 		card_valid = card_valid and background.texture_filter == CanvasItem.TEXTURE_FILTER_NEAREST and background.stretch_mode == TextureRect.STRETCH_SCALE
-		card_valid = card_valid and card_scale.is_equal_approx(Vector2(3.0 * output_scale.x, 3.0 * output_scale.y))
+		card_valid = card_valid and card_scale.is_equal_approx(Vector2(float(expected_card_scale), float(expected_card_scale)))
 		var icon_transform: Transform2D = icon.get_global_transform()
 		var transform_is_integer_translation: bool = icon.scale.is_equal_approx(Vector2.ONE) and absf(icon.rotation) <= 0.0001
 		transform_is_integer_translation = transform_is_integer_translation and icon_transform.x.is_equal_approx(Vector2(1.0, 0.0)) and icon_transform.y.is_equal_approx(Vector2(0.0, 1.0))
-		var icon_valid: bool = icon.visible and icon.size.is_equal_approx(icon_slot.size)
+		var icon_valid: bool = icon.visible and icon.size.is_equal_approx(icon.custom_minimum_size)
 		icon_valid = icon_valid and icon.texture_filter == CanvasItem.TEXTURE_FILTER_NEAREST and icon.stretch_mode == TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		icon_valid = icon_valid and icon_scale.is_equal_approx(Vector2(2.0 * output_scale.x, 2.0 * output_scale.y))
+		icon_valid = icon_valid and icon_scale.is_equal_approx(Vector2(float(expected_icon_scale), float(expected_icon_scale)))
 		icon_valid = icon_valid and _has_uniform_integer_pixel_scale(icon_rect, icon_source_size, output_scale)
 		icon_valid = icon_valid and _has_integer_physical_edges(icon_rect, output_scale) and transform_is_integer_translation
 		var item_valid: bool = card_valid and icon_valid
 		valid = valid and item_valid
-		print("G1_NURSERY_EGG_PIXEL_ITEM sample=%s egg=%s card_rect=%s card_scale=%s egg_rect=%s egg_scale=%s transform_integer_translation=%s result=%s" % [sample_name, egg_id, str(card_rect), str(card_scale), str(icon_rect), str(icon_scale), str(transform_is_integer_translation), str(item_valid)])
+		print("G1_NURSERY_EGG_PIXEL_ITEM sample=%s egg=%s card_rect=%s card_scale=%s expected_card_N=%d egg_rect=%s egg_scale=%s expected_egg_N=%d transform_integer_translation=%s result=%s" % [sample_name, egg_id, str(card_rect), str(card_scale), expected_card_scale, str(icon_rect), str(icon_scale), expected_icon_scale, str(transform_is_integer_translation), str(item_valid)])
 	return {"valid": valid and checks == 3, "checks": checks}
 
 
