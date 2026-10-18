@@ -263,6 +263,16 @@ func _refresh_cards() -> void:
 		background.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 		card.add_child(background)
 
+		var egg_icon: TextureRect = TextureRect.new()
+		egg_icon.name = "EggArtwork"
+		egg_icon.custom_minimum_size = EGG_ART_BASE_SIZE
+		egg_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		egg_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		egg_icon.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		egg_icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		egg_icon.visible = false
+		card.add_child(egg_icon)
+
 		var content: VBoxContainer = VBoxContainer.new()
 		content.name = "EggCardContent"
 		content.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -283,16 +293,13 @@ func _refresh_cards() -> void:
 		active_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		content.add_child(active_label)
 
-		var egg_icon: TextureRect = TextureRect.new()
-		egg_icon.name = "EggArtwork"
-		egg_icon.custom_minimum_size = Vector2(128.0, 128.0)
-		egg_icon.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-		egg_icon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		egg_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		egg_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		egg_icon.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-		egg_icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		content.add_child(egg_icon)
+		var egg_icon_slot: Control = Control.new()
+		egg_icon_slot.name = "EggArtworkSlot"
+		egg_icon_slot.custom_minimum_size = EGG_ART_BASE_SIZE
+		egg_icon_slot.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		egg_icon_slot.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		egg_icon_slot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		content.add_child(egg_icon_slot)
 
 		var progress_label: Label = Label.new()
 		progress_label.name = "EggProgressLabel"
@@ -314,6 +321,7 @@ func _refresh_cards() -> void:
 			"background": background,
 			"active": active_label,
 			"icon": egg_icon,
+			"icon_slot": egg_icon_slot,
 			"progress": progress_label,
 			"hint": hint_label
 		}
@@ -590,8 +598,12 @@ func _layout_ui(viewport_size: Vector2, safe_rect: Rect2, touch_target_override:
 	for card_data in egg_cards_by_id.values():
 		var card: Button = (card_data as Dictionary).get("button") as Button
 		var icon: TextureRect = (card_data as Dictionary).get("icon") as TextureRect
+		var icon_slot: Control = (card_data as Dictionary).get("icon_slot") as Control
 		card.custom_minimum_size = pixel_card_size
-		icon.custom_minimum_size = _integer_pixel_art_size(Vector2(icon.texture.get_size()), EGG_ART_BASE_SIZE, output_scale)
+		var icon_size: Vector2 = _integer_pixel_art_size(Vector2(icon.texture.get_size()), EGG_ART_BASE_SIZE, output_scale)
+		icon.custom_minimum_size = icon_size
+		icon.size = icon_size
+		icon_slot.custom_minimum_size = icon_size
 		icon.pivot_offset = icon.size * 0.5
 	var aligned_scroll_top: float = scroll_top
 	var aligned_scroll_left: float = scroll_left
@@ -614,6 +626,33 @@ func _layout_ui(viewport_size: Vector2, safe_rect: Rect2, touch_target_override:
 	name_edit.custom_minimum_size.x = maxf(112.0, panel_width - 48.0)
 	var panel_height: float = minf(maxf(200.0, name_panel.get_combined_minimum_size().y), maxf(1.0, safe_height - margin * 2.0))
 	_place_control(name_panel, Rect2(Vector2(safe_left + (safe_width - panel_width) * 0.5, safe_top + (safe_height - panel_height) * 0.5), Vector2(panel_width, panel_height)))
+	call_deferred("_align_egg_artworks_after_layout", output_scale)
+
+
+func _align_egg_artworks_after_layout(output_scale: Vector2) -> void:
+	if output_scale.x <= 0.0 or output_scale.y <= 0.0:
+		return
+	await get_tree().process_frame
+	if not is_inside_tree():
+		return
+	for card_data_variant in egg_cards_by_id.values():
+		var card_data: Dictionary = card_data_variant as Dictionary
+		var icon_slot: Control = card_data.get("icon_slot") as Control
+		var icon: TextureRect = card_data.get("icon") as TextureRect
+		if not is_instance_valid(icon_slot) or not is_instance_valid(icon):
+			continue
+		var icon_size: Vector2 = icon_slot.size
+		if icon_size.x <= 0.0 or icon_size.y <= 0.0:
+			icon_size = icon_slot.custom_minimum_size
+		if icon_size.x <= 0.0 or icon_size.y <= 0.0:
+			continue
+		icon.size = icon_size
+		var slot_position: Vector2 = icon_slot.global_position
+		icon.global_position = Vector2(
+			roundf(slot_position.x * output_scale.x) / output_scale.x,
+			roundf(slot_position.y * output_scale.y) / output_scale.y
+		)
+		icon.visible = true
 
 
 func _place_control(control: Control, target_rect: Rect2) -> void:
