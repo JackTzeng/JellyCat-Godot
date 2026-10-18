@@ -183,12 +183,9 @@ func _apply_card_style(card: Button) -> void:
 	if card == null:
 		return
 	DOS_STYLE.style_button(card)
-	var style: StyleBoxTexture = StyleBoxTexture.new()
-	style.texture = CARD_BACKGROUND
-	style.texture_margin_left = 12.0
-	style.texture_margin_top = 12.0
-	style.texture_margin_right = 12.0
-	style.texture_margin_bottom = 12.0
+	var style: StyleBoxFlat = StyleBoxFlat.new()
+	style.bg_color = Color(0.0, 0.0, 0.0, 0.0)
+	style.border_color = Color(0.0, 0.0, 0.0, 0.0)
 	style.set_content_margin_all(12.0)
 	for state in ["normal", "hover", "pressed", "focus", "disabled"]:
 		card.add_theme_stylebox_override(state, style)
@@ -250,9 +247,21 @@ func _refresh_cards() -> void:
 		var card: Button = Button.new()
 		card.name = "EggCard_%s" % egg_id
 		card.custom_minimum_size = Vector2(CARD_MIN_WIDTH, CARD_MIN_HEIGHT)
+		card.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		card.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		card.pressed.connect(_on_egg_card_pressed.bind(egg_id))
 		egg_grid.add_child(card)
 		_apply_card_style(card)
+
+		var background: TextureRect = TextureRect.new()
+		background.name = "CardArtwork"
+		background.texture = CARD_BACKGROUND
+		background.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		background.stretch_mode = TextureRect.STRETCH_SCALE
+		background.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		background.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		background.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		card.add_child(background)
 
 		var content: VBoxContainer = VBoxContainer.new()
 		content.name = "EggCardContent"
@@ -277,6 +286,8 @@ func _refresh_cards() -> void:
 		var egg_icon: TextureRect = TextureRect.new()
 		egg_icon.name = "EggArtwork"
 		egg_icon.custom_minimum_size = Vector2(128.0, 128.0)
+		egg_icon.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		egg_icon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		egg_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		egg_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 		egg_icon.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
@@ -300,6 +311,7 @@ func _refresh_cards() -> void:
 
 		egg_cards_by_id[egg_id] = {
 			"button": card,
+			"background": background,
 			"active": active_label,
 			"icon": egg_icon,
 			"progress": progress_label,
@@ -569,17 +581,35 @@ func _layout_ui(viewport_size: Vector2, safe_rect: Rect2, touch_target_override:
 	_place_control(egg_count_label, Rect2(Vector2(safe_left + margin, header_y + 76.0), Vector2(title_width, 28.0)))
 	var scroll_top: float = header_y + maxf(touch_target, 108.0) + margin
 	var scroll_bottom: float = safe_bottom - margin
-	_place_control(egg_scroll, Rect2(Vector2(safe_left + margin, scroll_top), Vector2(maxf(1.0, safe_width - margin * 2.0), maxf(1.0, scroll_bottom - scroll_top))))
+	var scroll_left: float = safe_left + margin
 	var card_width: float = maxf(CARD_MIN_WIDTH, touch_target * 2.25)
 	var columns: int = 2 if safe_width >= card_width * 2.0 + 56.0 else 1
 	egg_grid.columns = columns
+	var desired_card_size: Vector2 = Vector2(card_width, maxf(CARD_MIN_HEIGHT, touch_target * 2.55))
+	var pixel_card_size: Vector2 = _integer_pixel_art_size(Vector2(CARD_BACKGROUND.get_size()), desired_card_size, output_scale, true)
 	for card_data in egg_cards_by_id.values():
 		var card: Button = (card_data as Dictionary).get("button") as Button
 		var icon: TextureRect = (card_data as Dictionary).get("icon") as TextureRect
-		var desired_card_size: Vector2 = Vector2(card_width, maxf(CARD_MIN_HEIGHT, touch_target * 2.55))
-		card.custom_minimum_size = _integer_pixel_art_size(Vector2(CARD_BACKGROUND.get_size()), desired_card_size, output_scale, true)
+		card.custom_minimum_size = pixel_card_size
 		icon.custom_minimum_size = _integer_pixel_art_size(Vector2(icon.texture.get_size()), EGG_ART_BASE_SIZE, output_scale)
 		icon.pivot_offset = icon.size * 0.5
+	var aligned_scroll_top: float = scroll_top
+	var aligned_scroll_left: float = scroll_left
+	var aligned_scroll_height: float = maxf(1.0, scroll_bottom - scroll_top)
+	if output_scale.x > 0.0:
+		aligned_scroll_left = roundf(scroll_left * output_scale.x) / output_scale.x
+	if output_scale.y > 0.0:
+		aligned_scroll_top = roundf(scroll_top * output_scale.y) / output_scale.y
+		aligned_scroll_height = maxf(1.0, scroll_bottom - aligned_scroll_top)
+		if not egg_cards_by_id.is_empty():
+			var grid_rows: int = ceili(float(egg_cards_by_id.size()) / float(columns))
+			var grid_height: float = pixel_card_size.y * float(grid_rows)
+			grid_height += float(egg_grid.get_theme_constant("v_separation")) * float(maxi(0, grid_rows - 1))
+			var free_physical_height: float = aligned_scroll_height * output_scale.y - grid_height * output_scale.y
+			if free_physical_height >= 0.0:
+				var centered_free_physical_height: float = floorf(free_physical_height * 0.5) * 2.0
+				aligned_scroll_height = (grid_height * output_scale.y + centered_free_physical_height) / output_scale.y
+	_place_control(egg_scroll, Rect2(Vector2(aligned_scroll_left, aligned_scroll_top), Vector2(maxf(1.0, safe_width - margin * 2.0), aligned_scroll_height)))
 	var panel_width: float = minf(520.0, maxf(1.0, safe_width - margin * 2.0))
 	name_edit.custom_minimum_size.x = maxf(112.0, panel_width - 48.0)
 	var panel_height: float = minf(maxf(200.0, name_panel.get_combined_minimum_size().y), maxf(1.0, safe_height - margin * 2.0))

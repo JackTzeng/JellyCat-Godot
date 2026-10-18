@@ -81,6 +81,8 @@ func _add_log(level: String, message: String) -> void:
 	while logs.size() > MAX_LOGS:
 		logs.pop_front()
 	logs_changed.emit()
+	if level != "ERROR":
+		print("[JellyCat] %s %s" % [level, safe_message])
 
 
 func _can_log_throttled(key: String, seconds: float) -> bool:

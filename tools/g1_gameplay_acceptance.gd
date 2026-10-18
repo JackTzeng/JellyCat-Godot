@@ -91,17 +91,23 @@ func _run() -> void:
 			var active_nursery_egg_id: String = GameState.get_active_egg_id()
 			var other_nursery_egg_id: String = nursery_egg_ids[0] if nursery_egg_ids.size() > 0 and nursery_egg_ids[0] != active_nursery_egg_id else nursery_egg_ids[1]
 			_expect(nursery_cards.size() == 2 and nursery_cards.has(active_nursery_egg_id) and nursery_cards.has(other_nursery_egg_id), "Nursery lists each of the two remaining unhatched eggs")
+			var nursery_third_card_scrollable: bool = await _test_nursery_three_card_scroll(nursery_ui, GameState.get_nursery_egg(other_nursery_egg_id))
+			_expect(nursery_third_card_scrollable, "Nursery three-card overflow remains scrollable to the third card")
+			nursery_cards = nursery_ui.get("egg_cards_by_id") as Dictionary
 			var active_nursery_card: Dictionary = nursery_cards.get(active_nursery_egg_id, {}) as Dictionary
 			var active_nursery_button: Button = active_nursery_card.get("button") as Button
 			var active_nursery_icon: TextureRect = active_nursery_card.get("icon") as TextureRect
-			var card_style: StyleBoxTexture = active_nursery_button.get_theme_stylebox("normal") as StyleBoxTexture
+			var active_nursery_background: TextureRect = active_nursery_card.get("background") as TextureRect
+			var card_style: StyleBox = active_nursery_button.get_theme_stylebox("normal")
 			var card_art_scale_integer: bool = active_nursery_icon.texture_filter == CanvasItem.TEXTURE_FILTER_NEAREST
 			card_art_scale_integer = card_art_scale_integer and active_nursery_icon.custom_minimum_size == Vector2(128.0, 128.0)
 			card_art_scale_integer = card_art_scale_integer and active_nursery_icon.texture.get_size() == Vector2(64.0, 64.0)
-			card_art_scale_integer = card_art_scale_integer and card_style != null and card_style.texture.resource_path.ends_with("nursery_card_bg_96x112.png")
-			card_art_scale_integer = card_art_scale_integer and card_style.texture_margin_left == 12.0 and card_style.texture_margin_top == 12.0
-			card_art_scale_integer = card_art_scale_integer and card_style.texture_margin_right == 12.0 and card_style.texture_margin_bottom == 12.0
-			_expect(card_art_scale_integer, "Nursery egg art is integer-scaled nearest-neighbor and the approved card uses 12px 9-slice margins")
+			card_art_scale_integer = card_art_scale_integer and active_nursery_background != null
+			card_art_scale_integer = card_art_scale_integer and active_nursery_background.texture.resource_path.ends_with("nursery_card_bg_96x112.png")
+			card_art_scale_integer = card_art_scale_integer and active_nursery_background.texture_filter == CanvasItem.TEXTURE_FILTER_NEAREST
+			card_art_scale_integer = card_art_scale_integer and active_nursery_background.stretch_mode == TextureRect.STRETCH_SCALE
+			card_art_scale_integer = card_art_scale_integer and card_style != null and not (card_style is StyleBoxTexture)
+			_expect(card_art_scale_integer, "Nursery egg and card use nearest-scaled full texture regions without 9-slice styling")
 			var nursery_pixel_layouts: Array[Dictionary] = [
 				{"name": "1280x720-160dpi", "viewport": Vector2(1280.0, 720.0), "safe": Rect2(Vector2(24.0, 12.0), Vector2(1232.0, 696.0)), "dpi": 160.0},
 				{"name": "1280x720-320dpi", "viewport": Vector2(1280.0, 720.0), "safe": Rect2(Vector2(24.0, 12.0), Vector2(1232.0, 696.0)), "dpi": 320.0},
@@ -111,26 +117,63 @@ func _run() -> void:
 				{"name": "1600x720-320dpi", "viewport": Vector2(1600.0, 720.0), "safe": Rect2(Vector2(24.0, 12.0), Vector2(1552.0, 696.0)), "dpi": 320.0},
 			]
 			var nursery_physical_scales_integer: bool = true
+			var nursery_pixel_case_count: int = 0
 			for pixel_case in nursery_pixel_layouts:
 				var pixel_viewport: Vector2 = pixel_case["viewport"]
 				var pixel_dpi: float = float(pixel_case["dpi"])
 				var pixel_output_scale: Vector2 = Vector2(pixel_dpi / 160.0, pixel_dpi / 160.0)
 				var pixel_touch_target: float = 56.0 * pixel_dpi / 160.0
 				nursery_ui.call("_layout_ui", pixel_viewport, pixel_case["safe"], pixel_touch_target, pixel_viewport * pixel_output_scale)
-				var physical_card_scale_x: float = active_nursery_button.custom_minimum_size.x * pixel_output_scale.x / float(card_style.texture.get_width())
-				var physical_card_scale_y: float = active_nursery_button.custom_minimum_size.y * pixel_output_scale.y / float(card_style.texture.get_height())
-				var physical_egg_scale_x: float = active_nursery_icon.custom_minimum_size.x * pixel_output_scale.x / float(active_nursery_icon.texture.get_width())
-				var physical_egg_scale_y: float = active_nursery_icon.custom_minimum_size.y * pixel_output_scale.y / float(active_nursery_icon.texture.get_height())
-				nursery_physical_scales_integer = nursery_physical_scales_integer and is_equal_approx(physical_card_scale_x, roundf(physical_card_scale_x)) and is_equal_approx(physical_card_scale_y, roundf(physical_card_scale_y))
-				nursery_physical_scales_integer = nursery_physical_scales_integer and is_equal_approx(physical_egg_scale_x, roundf(physical_egg_scale_x)) and is_equal_approx(physical_egg_scale_y, roundf(physical_egg_scale_y))
-				nursery_physical_scales_integer = nursery_physical_scales_integer and active_nursery_button.custom_minimum_size.x >= 256.0 and active_nursery_button.custom_minimum_size.y >= 320.0 and active_nursery_icon.texture_filter == CanvasItem.TEXTURE_FILTER_NEAREST
-			_expect(nursery_physical_scales_integer, "Egg and 9-slice card render at integer physical-pixel scales with nearest sampling across three aspects at 160/320dpi")
+				await get_tree().process_frame
+				await get_tree().process_frame
+				var actual_card_rect: Rect2 = active_nursery_button.get_global_rect()
+				var actual_background_rect: Rect2 = active_nursery_background.get_global_rect()
+				var actual_egg_rect: Rect2 = active_nursery_icon.get_global_rect()
+				var card_source_size: Vector2 = active_nursery_background.texture.get_size()
+				var egg_source_size: Vector2 = active_nursery_icon.texture.get_size()
+				var physical_card_scale: Vector2 = Vector2(
+					actual_background_rect.size.x * pixel_output_scale.x / card_source_size.x,
+					actual_background_rect.size.y * pixel_output_scale.y / card_source_size.y
+				)
+				var physical_egg_scale: Vector2 = Vector2(
+					actual_egg_rect.size.x * pixel_output_scale.x / egg_source_size.x,
+					actual_egg_rect.size.y * pixel_output_scale.y / egg_source_size.y
+				)
+				var safe_rect: Rect2 = pixel_case["safe"]
+				var title_rect: Rect2 = (nursery_ui.get("title_label") as Label).get_global_rect()
+				var back_rect: Rect2 = (nursery_ui.get("back_button") as Button).get_global_rect()
+				var scroll_rect: Rect2 = egg_scroll.get_global_rect()
+				var wrapper_rect: Rect2 = scroll_wrapper.get_global_rect()
+				var grid_rect: Rect2 = egg_grid.get_global_rect()
+				var header_inside_safe: bool = title_rect.position.x >= safe_rect.position.x and title_rect.position.y >= safe_rect.position.y
+				header_inside_safe = header_inside_safe and title_rect.end.x <= safe_rect.end.x and title_rect.end.y <= safe_rect.end.y
+				header_inside_safe = header_inside_safe and back_rect.position.x >= safe_rect.position.x and back_rect.position.y >= safe_rect.position.y
+				header_inside_safe = header_inside_safe and back_rect.end.x <= safe_rect.end.x and back_rect.end.y <= safe_rect.end.y
+				var header_separated: bool = not title_rect.intersects(back_rect) and actual_card_rect.position.y >= maxf(title_rect.end.y, back_rect.end.y)
+				var card_within_scroll: bool = actual_card_rect.position.x >= scroll_rect.position.x and actual_card_rect.end.x <= scroll_rect.end.x
+				card_within_scroll = card_within_scroll and actual_card_rect.position.y >= scroll_rect.position.y and actual_card_rect.end.y <= scroll_rect.end.y
+				var card_geometry_valid: bool = _has_uniform_integer_pixel_scale(actual_background_rect, card_source_size, pixel_output_scale)
+				card_geometry_valid = card_geometry_valid and _has_integer_physical_edges(actual_background_rect, pixel_output_scale)
+				card_geometry_valid = card_geometry_valid and actual_background_rect.position.is_equal_approx(actual_card_rect.position)
+				card_geometry_valid = card_geometry_valid and actual_background_rect.size.is_equal_approx(actual_card_rect.size)
+				card_geometry_valid = card_geometry_valid and actual_card_rect.size.x >= 256.0 and actual_card_rect.size.y >= 320.0
+				var egg_geometry_valid: bool = _has_uniform_integer_pixel_scale(actual_egg_rect, egg_source_size, pixel_output_scale)
+				egg_geometry_valid = egg_geometry_valid and _has_integer_physical_edges(actual_egg_rect, pixel_output_scale)
+				var pixel_case_valid: bool = card_geometry_valid and egg_geometry_valid and header_inside_safe and header_separated and card_within_scroll
+				nursery_physical_scales_integer = nursery_physical_scales_integer and pixel_case_valid
+				if pixel_case_valid:
+					nursery_pixel_case_count += 1
+					print("G1_NURSERY_PIXEL_CASE %s card_rect=%s card_scale=%s egg_rect=%s egg_scale=%s" % [str(pixel_case["name"]), str(actual_background_rect), str(physical_card_scale), str(actual_egg_rect), str(physical_egg_scale)])
+				else:
+					print("G1_NURSERY_PIXEL_CASE_FAIL %s card_rect=%s card_scale=%s egg_rect=%s egg_scale=%s scroll_rect=%s wrapper_rect=%s grid_rect=%s header_safe=%s header_separated=%s scroll=%s" % [str(pixel_case["name"]), str(actual_background_rect), str(physical_card_scale), str(actual_egg_rect), str(physical_egg_scale), str(scroll_rect), str(wrapper_rect), str(grid_rect), str(header_inside_safe), str(header_separated), str(card_within_scroll)])
+				_expect(pixel_case_valid, "Nursery final card and egg rectangles use equal integer physical-pixel scales and stay in bounds: %s" % str(pixel_case["name"]))
+			_expect(nursery_pixel_case_count == nursery_pixel_layouts.size(), "All six nursery pixel configurations pass final-rectangle checks")
 			nursery_ui.call("_apply_responsive_layout")
 			_expect(str((active_nursery_card.get("progress") as Label).text).contains("0 / 10") and str((active_nursery_card.get("hint") as Label).text).contains("點擊蛋殼"), "Each Nursery card displays its click progress and hatch hint")
 			var active_card_rect: Rect2 = active_nursery_button.get_global_rect()
 			var progress_rect: Rect2 = (active_nursery_card.get("progress") as Label).get_global_rect()
 			var hint_rect: Rect2 = (active_nursery_card.get("hint") as Label).get_global_rect()
-			_expect(progress_rect.position.y >= active_card_rect.position.y + 8.0 and hint_rect.position.y >= progress_rect.end.y and hint_rect.end.y <= active_card_rect.end.y - 8.0, "Nursery progress and hint text stay separated and within the 9-slice card bounds")
+			_expect(progress_rect.position.y >= active_card_rect.position.y + 8.0 and hint_rect.position.y >= progress_rect.end.y and hint_rect.end.y <= active_card_rect.end.y - 8.0, "Nursery progress and hint text stay separated and within the card bounds")
 			active_nursery_button.pressed.emit()
 			active_nursery_button.pressed.emit()
 			var first_progress: int = int(GameState.get_nursery_egg(active_nursery_egg_id).get("current_clicks", 0))
@@ -1940,6 +1983,71 @@ func _control_inside_safe(control: Control, safe_rect: Rect2) -> bool:
 		and control_rect.end.x <= safe_rect.end.x
 		and control_rect.end.y <= safe_rect.end.y
 	)
+
+
+func _test_nursery_three_card_scroll(nursery_ui: Control, source_egg: Dictionary) -> bool:
+	var probe_egg_id: String = "g1_three_card_scroll_probe"
+	var probe_egg: Dictionary = source_egg.duplicate(true)
+	probe_egg["egg_id"] = probe_egg_id
+	probe_egg["pet_id"] = "g1_three_card_scroll_probe_pet"
+	probe_egg["current_clicks"] = 0
+	nursery_ui.call("_layout_ui", Vector2(1280.0, 720.0), Rect2(Vector2(24.0, 12.0), Vector2(1232.0, 696.0)), 56.0, Vector2(1280.0, 720.0))
+	if not GameState.add_nursery_egg(probe_egg):
+		return false
+	var egg_scroll: ScrollContainer = nursery_ui.get("egg_scroll") as ScrollContainer
+	var egg_grid: GridContainer = nursery_ui.get("egg_grid") as GridContainer
+	nursery_ui.call("_refresh_cards")
+	await get_tree().process_frame
+	await get_tree().process_frame
+	var cards: Dictionary = nursery_ui.get("egg_cards_by_id") as Dictionary
+	var third_card_scrollable: bool = false
+	var third_button: Button = (cards.get(probe_egg_id, {}) as Dictionary).get("button") as Button
+	var scroll_rect: Rect2 = egg_scroll.get_global_rect()
+	var third_rect_before: Rect2 = Rect2()
+	var third_rect_after: Rect2 = Rect2()
+	var scroll_range: float = 0.0
+	if cards.size() == 3 and egg_grid.columns == 2 and is_instance_valid(third_button):
+		var scroll_bar: VScrollBar = egg_scroll.get_v_scroll_bar()
+		third_rect_before = third_button.get_global_rect()
+		scroll_range = maxf(0.0, scroll_bar.max_value - scroll_bar.page)
+		var overflow_is_visible: bool = scroll_range > 0.0 and third_rect_before.end.y > scroll_rect.end.y
+		if overflow_is_visible:
+			egg_scroll.scroll_vertical = ceili(scroll_range)
+			await get_tree().process_frame
+			await get_tree().process_frame
+			third_rect_after = third_button.get_global_rect()
+			third_card_scrollable = third_rect_after.position.y >= scroll_rect.position.y - 1.0
+			third_card_scrollable = third_card_scrollable and third_rect_after.end.y <= scroll_rect.end.y + 1.0
+			third_card_scrollable = third_card_scrollable and third_rect_after.position.x >= scroll_rect.position.x
+			third_card_scrollable = third_card_scrollable and third_rect_after.end.x <= scroll_rect.end.x
+			third_card_scrollable = third_card_scrollable and third_rect_after.position.y < third_rect_before.position.y
+	print("G1_NURSERY_SCROLL_CASE cards=%d columns=%d range=%.2f before=%s after=%s viewport=%s reachable=%s" % [cards.size(), egg_grid.columns, scroll_range, str(third_rect_before), str(third_rect_after), str(scroll_rect), str(third_card_scrollable)])
+	egg_scroll.scroll_vertical = 0
+	var probe_removed: bool = GameState.remove_nursery_egg(probe_egg_id)
+	nursery_ui.call("_refresh_cards")
+	await get_tree().process_frame
+	return third_card_scrollable and probe_removed
+
+
+func _has_uniform_integer_pixel_scale(art_rect: Rect2, source_size: Vector2, output_scale: Vector2) -> bool:
+	if source_size.x <= 0.0 or source_size.y <= 0.0 or output_scale.x <= 0.0 or output_scale.y <= 0.0:
+		return false
+	var scale_x: float = art_rect.size.x * output_scale.x / source_size.x
+	var scale_y: float = art_rect.size.y * output_scale.y / source_size.y
+	return is_equal_approx(scale_x, roundf(scale_x)) and is_equal_approx(scale_y, roundf(scale_y)) and is_equal_approx(scale_x, scale_y)
+
+
+func _has_integer_physical_edges(art_rect: Rect2, output_scale: Vector2) -> bool:
+	var physical_edges: Array[float] = [
+		art_rect.position.x * output_scale.x,
+		art_rect.position.y * output_scale.y,
+		art_rect.end.x * output_scale.x,
+		art_rect.end.y * output_scale.y
+	]
+	for edge in physical_edges:
+		if not is_equal_approx(edge, roundf(edge)):
+			return false
+	return true
 
 
 func _expect(condition: bool, label: String) -> void:

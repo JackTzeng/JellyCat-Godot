@@ -31,9 +31,15 @@ from android_asset_gate import (
 
 
 GODOT_ERROR = re.compile(r"(?im)^\s*(?:SCRIPT ERROR:|Parse Error:|ERROR:)")
+G1_STDOUT_REQUIRED = (
+    "[JellyCat] INFO IME keyboard request field=nursery_name ",
+    "[JellyCat] INFO IME keyboard height field=nursery_name ",
+    "[JellyCat] INFO food eaten ",
+    "[JellyCat] INFO full refusal ",
+)
 
 
-def check_godot_step(log: str, exit_code: int, marker: str = "") -> str | None:
+def check_godot_step(log: str, exit_code: int, marker: str = "", step: str = "") -> str | None:
     if exit_code != 0:
         return f"Godot exited with status {exit_code}"
     error = GODOT_ERROR.search(log)
@@ -42,6 +48,10 @@ def check_godot_step(log: str, exit_code: int, marker: str = "") -> str | None:
         return f"Godot error output: {line}"
     if marker and not any(line.startswith(marker) for line in log.splitlines()):
         return f"required success marker missing: {marker}"
+    if step.casefold() == "g1_gameplay_acceptance" or step.casefold().startswith("g1-repeat-"):
+        missing = [fragment for fragment in G1_STDOUT_REQUIRED if not any(fragment in line for line in log.splitlines())]
+        if missing:
+            return "required RuntimeLogger stdout mirror missing: " + ", ".join(missing)
     return None
 
 
@@ -213,6 +223,14 @@ class BuildGateTests(unittest.TestCase):
     def test_clean_log_passes_even_when_it_has_no_diagnostic_marker(self) -> None:
         self.assertIsNone(check_godot_step("Godot Engine v4.2.1.stable\n", 0))
 
+    def test_g1_log_requires_runtime_telemetry_stdout_mirror(self) -> None:
+        log = "\n".join(G1_STDOUT_REQUIRED) + "\nG1_GAMEPLAY_ACCEPTANCE_OK checks=1\n"
+        self.assertIsNone(check_godot_step(log, 0, "G1_GAMEPLAY_ACCEPTANCE_OK ", "g1_gameplay_acceptance"))
+        self.assertIsNotNone(check_godot_step("G1_GAMEPLAY_ACCEPTANCE_OK checks=1\n", 0, "G1_GAMEPLAY_ACCEPTANCE_OK ", "G1-repeat-01"))
+
+    def test_non_g1_step_does_not_require_runtime_telemetry(self) -> None:
+        self.assertIsNone(check_godot_step("RUNTIME_ACCEPTANCE_OK checks=1\n", 0, "RUNTIME_ACCEPTANCE_OK ", "core_acceptance"))
+
     def test_parser_error_fails_even_when_godot_returns_zero(self) -> None:
         log = "SCRIPT ERROR: Parse Error: Too few arguments for feed_food()\n"
         self.assertIsNotNone(check_godot_step(log, 0))
@@ -279,7 +297,7 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.command == "check-log":
-        error = check_godot_step(args.log.read_text(encoding="utf-8", errors="replace"), args.exit_code, args.marker)
+        error = check_godot_step(args.log.read_text(encoding="utf-8", errors="replace"), args.exit_code, args.marker, args.step)
         if error:
             print(f"ANDROID_GATE_FAIL step={args.step}: {error}", file=sys.stderr)
             return 1
