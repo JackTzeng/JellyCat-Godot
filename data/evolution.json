@@ -9,22 +9,22 @@
       {
         "stage": 2,
         "name": "小小水母喵",
-        "required_growth_exp": 100
+        "required_growth_exp": 50
       },
       {
         "stage": 3,
         "name": "漂浮水母喵",
-        "required_growth_exp": 250
+        "required_growth_exp": 100
       },
       {
         "stage": 4,
         "name": "星光水母喵",
-        "required_growth_exp": 500
+        "required_growth_exp": 150
       },
       {
         "stage": 5,
         "name": "夢海水母喵",
-        "required_growth_exp": 900
+        "required_growth_exp": 200
       }
     ]
   }

@@ -4,17 +4,17 @@ class_name CoinDropSystem
 
 
 static func can_spawn_coin_bubble(active_count: int) -> bool:
-	if active_count >= int(GameApp.get_balance_value("max_coin_bubbles_on_screen", 10)):
+	if active_count >= int(GameApp.get_balance_value("max_coin_bubbles_on_screen")):
 		return false
 	return not get_eligible_pet_ids().is_empty()
 
 
 static func get_eligible_pet_ids() -> Array[String]:
 	var result: Array[String] = []
-	var mood_threshold: int = int(GameApp.get_balance_value("passive_coin_mood_threshold", 70))
+	var mood_threshold: int = int(GameApp.get_balance_value("passive_coin_mood_threshold"))
 	for pet_id in GameState.get_active_pet_ids():
 		var pet: Dictionary = GameState.get_pet(pet_id)
-		if str(pet.get("health", "healthy")) == "healthy" and int(pet.get("mood", 0)) >= mood_threshold:
+		if str(pet.get("health", "healthy")) == "healthy" and int(pet.get("hunger", 0)) > 0 and int(pet.get("mood", 0)) >= mood_threshold:
 			result.append(pet_id)
 	return result
 
@@ -35,7 +35,7 @@ static func get_spawn_position(viewport_size: Vector2, source_position: Vector2)
 
 
 static func reserve_coin(source_pet_id: String, value: int, position: Vector2) -> Dictionary:
-	var lifetime: float = maxf(float(GameApp.get_balance_value("coin_bubble_auto_collect_seconds", 15.0)), 1.0)
+	var lifetime: float = maxf(float(GameApp.get_balance_value("coin_bubble_auto_collect_seconds")), 1.0)
 	var drop: Dictionary = GameState.reserve_coin_drop(source_pet_id, value, position, Time.get_unix_time_from_system() + lifetime)
 	if drop.is_empty():
 		push_warning("Coin drop rejected for inactive source pet or invalid value: %s" % source_pet_id)
@@ -59,3 +59,10 @@ static func collect_coin(token_id: String, auto_collected: bool) -> Dictionary:
 	if not SaveManager.save_game():
 		push_warning("Coin transaction resolved in memory, but the immediate save failed.")
 	return drop
+
+
+static func get_meal_coin_drop(food_token_id: String) -> Dictionary:
+	for drop in GameState.get_coin_drops():
+		if str(drop.get("source", "")) == "meal" and str(drop.get("food_token_id", "")) == food_token_id:
+			return drop
+	return {}

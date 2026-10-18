@@ -108,10 +108,9 @@ func _run() -> void:
 	game_state.set_daily_claim(daily_claim_before)
 	var daily_snapshot: Dictionary = game_state.get_daily_claim().duplicate(true)
 	var coins_before_daily: int = int(game_state.get_currency("bubble_coin"))
-	(aquarium.get_node("%DailyFoodButton") as Button).pressed.emit()
-	_expect(game_state.get_daily_claim() == daily_snapshot, "Daily unlimited-food prompt leaves the legacy claim date unchanged")
-	_expect(int(game_state.get_inventory_count("food_basic")) == before_food and int(game_state.get_currency("bubble_coin")) == coins_before_daily, "Daily unlimited-food prompt changes neither inventory nor currency")
-	_expect(str((aquarium.get_node("%MessageLabel") as Label).text) == "飼料已無限", "Daily unlimited-food prompt shows the approved message")
+	_expect(aquarium.get_node_or_null("%DailyFoodButton") == null, "Daily-food button is removed from the Android Aquarium scene")
+	_expect(game_state.get_daily_claim() == daily_snapshot, "Legacy daily-claim data remains readable and unchanged")
+	_expect(int(game_state.get_inventory_count("food_basic")) == before_food and int(game_state.get_currency("bubble_coin")) == coins_before_daily, "Removing daily-food UI changes neither inventory nor currency")
 	(aquarium.get_node("%ShopButton") as Button).pressed.emit()
 	var shop_panel: Control = aquarium.get_node("%ShopPanel") as Control
 	var shop_food_label: Label = shop_panel.get_node("%FoodInfoLabel") as Label

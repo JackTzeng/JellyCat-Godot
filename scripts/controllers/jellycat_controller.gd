@@ -13,7 +13,6 @@ const MAX_SWIM_ROTATION: float = 0.025
 const BOB_AMPLITUDE: float = 8.0
 const EAT_ANIMATION_SECONDS: float = 0.45
 const FULL_FOOD_REFUSAL_SECONDS: float = 0.8
-
 @onready var sprite: Sprite2D = %Sprite
 
 var pet_id: String = ""
@@ -45,6 +44,8 @@ var layout_transition_start_position: Vector2 = Vector2.ZERO
 var layout_transition_target_position: Vector2 = Vector2.ZERO
 var layout_transition_start_roam_target: Vector2 = Vector2.ZERO
 var layout_transition_target_roam_target: Vector2 = Vector2.ZERO
+var panel_evasion_active: bool = false
+var panel_evasion_target: Vector2 = Vector2.ZERO
 var rng: RandomNumberGenerator = RandomNumberGenerator.new()
 
 
@@ -71,7 +72,12 @@ func _process(delta: float) -> void:
 		return
 	bob_time += delta
 	var offset: Vector2 = roam_target - position
-	if layout_transition_active:
+	if panel_evasion_active:
+		position = position.move_toward(
+			panel_evasion_target,
+			float(GameApp.get_balance_value("actor_swim_speed", 32.0)) * delta
+		)
+	elif layout_transition_active:
 		_advance_layout_transition(delta)
 	else:
 		match behavior_state:
@@ -116,7 +122,7 @@ func _process(delta: float) -> void:
 	if behavior_state == "full_food_refusal":
 		sprite.rotation += sin(bob_time * 30.0) * 0.32
 	_apply_sprite_pose()
-	if not layout_transition_active:
+	if not layout_transition_active and not panel_evasion_active:
 		position = _clamp_to_water(position)
 
 
@@ -138,6 +144,16 @@ func set_water_bounds(bounds: Rect2) -> void:
 	_update_base_scale()
 	position = _clamp_to_water(position)
 	roam_target = _clamp_to_water(roam_target)
+
+
+func update_water_bounds_preserving_position(bounds: Rect2, update_visual_scale: bool = false) -> void:
+	if bounds.size.x <= 0.0 or bounds.size.y <= 0.0:
+		return
+	water_bounds_local = bounds
+	has_water_bounds = true
+	layout_transition_active = false
+	if update_visual_scale:
+		_update_base_scale(false)
 
 
 func set_layout_water_bounds(
@@ -264,11 +280,36 @@ func complete_meal(token_id: String) -> void:
 
 
 func react_to_touch() -> void:
-	if behavior_state in ["eat", "post_meal", "full_food_refusal"]:
+	_update_touch_paw_wave_anchor()
+	_play_touch_paw_wave()
+
+
+func _update_touch_paw_wave_anchor() -> void:
+	var anchor: Node2D = get_node_or_null("TouchPawWaveAnchor") as Node2D
+	if anchor == null or sprite.texture == null:
 		return
-	behavior_state = "touch_reaction"
-	touch_reaction_timer = 0.8
-	_play_sheet_effect("res://assets/effects/pet_sheet_4x32.png", 4, 12.0)
+	var source_origin: Vector2 = sprite.offset
+	if sprite.centered:
+		source_origin -= Vector2(sprite.texture.get_size()) * 0.5
+	anchor.position = to_local(sprite.to_global(source_origin + Vector2(16.0, -23.0)))
+
+
+func _play_touch_paw_wave() -> void:
+	# ART-HAND-01 v4 is pending Jack's visual approval; keep this playback hook reserved.
+	pass
+
+
+func set_panel_evasion_target(target: Vector2) -> void:
+	panel_evasion_active = true
+	panel_evasion_target = target
+
+
+func clear_panel_evasion() -> void:
+	panel_evasion_active = false
+
+
+func is_panel_evasion_active() -> bool:
+	return panel_evasion_active
 
 
 func can_react_to_full_food() -> bool:
@@ -421,6 +462,7 @@ func _apply_sprite_pose() -> void:
 	var scale_value: float = base_scale * pulse_scale
 	sprite.scale = Vector2.ONE * scale_value
 	sprite.position = -visible_texture_center * scale_value + Vector2(0.0, bob_offset)
+	_update_touch_paw_wave_anchor()
 
 
 func _get_visible_texture_rect(texture: Texture2D) -> Rect2:

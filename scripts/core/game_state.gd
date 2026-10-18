@@ -6,7 +6,6 @@ const SAVE_VERSION: String = "0.2.0"
 const SCHEMA_VERSION: int = 2
 const STARTER_CAPACITY: int = 3
 const MAX_PET_CAPACITY: int = 12
-const MAX_ACTIVE_FOOD_DROPS: int = 10
 const STARTER_PERSONALITIES: Array[String] = ["curious", "affectionate", "sleepy"]
 
 var data: Dictionary = {}
@@ -407,12 +406,16 @@ func get_food_drops() -> Array[Dictionary]:
 	return result
 
 
+func get_max_active_food_drops() -> int:
+	return max(int(GameApp.get_balance_value("max_active_food_drops")), 0)
+
+
 func reserve_food_drop(item_id: String, position: Vector2, expires_at: float) -> Dictionary:
 	if item_id != "food_basic":
 		return {}
 	var aquarium: Dictionary = data["aquarium"] as Dictionary
 	var drops: Array = aquarium.get("food_drops", []) as Array
-	if drops.size() >= MAX_ACTIVE_FOOD_DROPS:
+	if drops.size() >= get_max_active_food_drops():
 		return {}
 	var token_number: int = max(int(aquarium.get("food_token_counter", 0)), 0) + 1
 	var token_id: String = "food_%08d" % token_number
@@ -451,6 +454,54 @@ func resolve_food_drop(token_id: String, pet_id: String = "", pet_data: Dictiona
 	aquarium["food_drops"] = drops
 	mark_changed()
 	return true
+
+
+func resolve_food_drop_with_coin(
+	food_token_id: String,
+	pet_id: String,
+	pet_data: Dictionary,
+	coin_value: int,
+	coin_position: Vector2,
+	coin_expires_at: float
+) -> Dictionary:
+	if food_token_id.is_empty() or pet_id.is_empty() or pet_data.is_empty() or coin_value <= 0:
+		return {}
+	if not get_active_pet_ids().has(pet_id) or str(pet_data.get("pet_id", "")) != pet_id:
+		return {}
+	var aquarium: Dictionary = data["aquarium"] as Dictionary
+	var food_drops: Array = aquarium.get("food_drops", []) as Array
+	var food_index: int = -1
+	for index in range(food_drops.size()):
+		if food_drops[index] is Dictionary and str((food_drops[index] as Dictionary).get("token_id", "")) == food_token_id:
+			food_index = index
+			break
+	if food_index < 0:
+		return {}
+	var coin_drops: Array = aquarium.get("coin_drops", []) as Array
+	var token_number: int = max(int(aquarium.get("coin_token_counter", 0)), 0) + 1
+	var coin_token_id: String = "coin_%08d" % token_number
+	while _has_coin_token(coin_drops, coin_token_id):
+		token_number += 1
+		coin_token_id = "coin_%08d" % token_number
+	var coin_drop: Dictionary = {
+		"token_id": coin_token_id,
+		"source_pet_id": pet_id,
+		"value": coin_value,
+		"x": coin_position.x,
+		"y": coin_position.y,
+		"expires_at": maxf(coin_expires_at, Time.get_unix_time_from_system() + 1.0),
+		"source": "meal",
+		"food_token_id": food_token_id
+	}
+	var pets: Dictionary = data["pets"] as Dictionary
+	pets[pet_id] = _normalize_pet(pet_id, pet_data)
+	food_drops.remove_at(food_index)
+	coin_drops.append(coin_drop)
+	aquarium["food_drops"] = food_drops
+	aquarium["coin_drops"] = coin_drops
+	aquarium["coin_token_counter"] = token_number
+	mark_changed()
+	return coin_drop.duplicate(true)
 
 
 func _has_food_token(drops: Array, token_id: String) -> bool:
@@ -851,7 +902,11 @@ func _default_care_stats() -> Dictionary:
 		"touch_growth_exp_today": 0,
 		"touch_exp_date": "",
 		"last_touch_effect_at": 0.0,
-		"touch_cap_notified_date": ""
+		"touch_cap_notified_date": "",
+		"touch_growth_exp_hour": 0,
+		"touch_exp_hour_started_at": 0.0,
+		"touch_exp_hour_id": "",
+		"touch_cap_notified_hour_id": ""
 	}
 
 

@@ -15,13 +15,26 @@ static func drop_food(position: Vector2) -> Dictionary:
 	return drop
 
 
-static func consume_food(token_id: String, pet_id: String) -> bool:
+static func consume_food(token_id: String, pet_id: String, coin_position: Vector2 = Vector2.ZERO) -> bool:
 	var drop: Dictionary = _get_drop(token_id)
 	if drop.is_empty() or float(drop.get("expires_at", 0.0)) <= Time.get_unix_time_from_system():
 		return false
 	var pet_data: Dictionary = CareSystem.build_fed_pet_data(pet_id, str(drop.get("item_id", "")))
-	if pet_data.is_empty() or not GameState.resolve_food_drop(token_id, pet_id, pet_data):
+	if pet_data.is_empty():
 		return false
+	var coin_value: int = int(GameApp.get_balance_value("meal_coin_base_value")) + int(pet_data.get("stage", 1))
+	var coin_lifetime: float = maxf(float(GameApp.get_balance_value("coin_bubble_auto_collect_seconds")), 1.0)
+	var coin_drop: Dictionary = GameState.resolve_food_drop_with_coin(
+		token_id,
+		pet_id,
+		pet_data,
+		coin_value,
+		coin_position,
+		Time.get_unix_time_from_system() + coin_lifetime
+	)
+	if coin_drop.is_empty():
+		return false
+	RuntimeLogger.log_info("coin from meal %s +%d by %s" % [token_id, coin_value, pet_id])
 	if not SaveManager.save_game():
 		push_warning("Food transaction resolved in memory, but the immediate save failed.")
 	return true

@@ -63,119 +63,97 @@ layout_mode = 1
 theme_override_constants/separation = 8
 alignment = 1
 
-[node name="StatusBackdrop" type="ColorRect" parent="."]
+[node name="InfoExpandedPanel" type="PanelContainer" parent="."]
 unique_name_in_owner = true
-layout_mode = 1
-anchors_preset = 10
-anchor_right = 1.0
-offset_left = 24.0
-offset_top = 20.0
-offset_right = -1148.0
-offset_bottom = 320.0
-mouse_filter = 2
-color = Color(0.02, 0.07, 0.1, 0.96)
-
-[node name="StatusScroll" type="ScrollContainer" parent="."]
-unique_name_in_owner = true
+visible = false
 layout_mode = 1
 mouse_filter = 0
+z_index = 2
 
-[node name="TopPanel" type="VBoxContainer" parent="StatusScroll"]
+[node name="StatusScroll" type="ScrollContainer" parent="InfoExpandedPanel"]
+unique_name_in_owner = true
+layout_mode = 2
+mouse_filter = 0
+
+[node name="TopPanel" type="VBoxContainer" parent="InfoExpandedPanel/StatusScroll"]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 1
 theme_override_constants/separation = 2
 
-[node name="CoinLabel" type="Label" parent="StatusScroll/TopPanel"]
-unique_name_in_owner = true
-layout_mode = 2
-text = "泡泡幣：0"
-horizontal_alignment = 1
-theme_override_font_sizes/font_size = 22
-
-[node name="PetInfoActions" type="HBoxContainer" parent="StatusScroll/TopPanel"]
-layout_mode = 2
-theme_override_constants/separation = 8
-
-[node name="PetInfoButton" type="Button" parent="StatusScroll/TopPanel/PetInfoActions"]
-unique_name_in_owner = true
-layout_mode = 2
-size_flags_horizontal = 3
-text = "寵物資料"
-
-[node name="RenameButton" type="Button" parent="StatusScroll/TopPanel/PetInfoActions"]
+[node name="RenameButton" type="Button" parent="InfoExpandedPanel/StatusScroll/TopPanel"]
 unique_name_in_owner = true
 visible = false
 layout_mode = 2
 size_flags_horizontal = 3
 text = "改名"
 
-[node name="StageLabel" type="Label" parent="StatusScroll/TopPanel"]
+[node name="StageLabel" type="Label" parent="InfoExpandedPanel/StatusScroll/TopPanel"]
 unique_name_in_owner = true
 layout_mode = 2
 text = "寵物"
 horizontal_alignment = 1
 theme_override_font_sizes/font_size = 24
 
-[node name="HungerLabel" type="Label" parent="StatusScroll/TopPanel"]
+[node name="HungerLabel" type="Label" parent="InfoExpandedPanel/StatusScroll/TopPanel"]
 unique_name_in_owner = true
 layout_mode = 2
 text = "飢餓：0 / 100"
 horizontal_alignment = 1
 
-[node name="HungerBar" type="ProgressBar" parent="StatusScroll/TopPanel"]
+[node name="HungerBar" type="ProgressBar" parent="InfoExpandedPanel/StatusScroll/TopPanel"]
 unique_name_in_owner = true
 layout_mode = 2
 custom_minimum_size = Vector2(0, 10)
 max_value = 100.0
 show_percentage = false
 
-[node name="MoodLabel" type="Label" parent="StatusScroll/TopPanel"]
+[node name="MoodLabel" type="Label" parent="InfoExpandedPanel/StatusScroll/TopPanel"]
 unique_name_in_owner = true
 layout_mode = 2
 text = "心情：0 / 100"
 horizontal_alignment = 1
 
-[node name="MoodBar" type="ProgressBar" parent="StatusScroll/TopPanel"]
+[node name="MoodBar" type="ProgressBar" parent="InfoExpandedPanel/StatusScroll/TopPanel"]
 unique_name_in_owner = true
 layout_mode = 2
 custom_minimum_size = Vector2(0, 10)
 max_value = 100.0
 show_percentage = false
 
-[node name="CleanlinessLabel" type="Label" parent="StatusScroll/TopPanel"]
+[node name="CleanlinessLabel" type="Label" parent="InfoExpandedPanel/StatusScroll/TopPanel"]
 unique_name_in_owner = true
 layout_mode = 2
 text = "清潔度：0 / 100"
 horizontal_alignment = 1
 
-[node name="CleanBar" type="ProgressBar" parent="StatusScroll/TopPanel"]
+[node name="CleanBar" type="ProgressBar" parent="InfoExpandedPanel/StatusScroll/TopPanel"]
 unique_name_in_owner = true
 layout_mode = 2
 custom_minimum_size = Vector2(0, 10)
 max_value = 100.0
 show_percentage = false
 
-[node name="HealthLabel" type="Label" parent="StatusScroll/TopPanel"]
+[node name="HealthLabel" type="Label" parent="InfoExpandedPanel/StatusScroll/TopPanel"]
 unique_name_in_owner = true
 layout_mode = 2
 text = "健康：正常"
 horizontal_alignment = 1
 
-[node name="ExpLabel" type="Label" parent="StatusScroll/TopPanel"]
+[node name="ExpLabel" type="Label" parent="InfoExpandedPanel/StatusScroll/TopPanel"]
 unique_name_in_owner = true
 layout_mode = 2
 text = "成長經驗：0"
 horizontal_alignment = 1
 
-[node name="TouchExpLabel" type="Label" parent="StatusScroll/TopPanel"]
+[node name="TouchExpLabel" type="Label" parent="InfoExpandedPanel/StatusScroll/TopPanel"]
 unique_name_in_owner = true
 layout_mode = 2
 text = "摸摸經驗：0/20｜可累積"
 horizontal_alignment = 1
 
-[node name="EvolutionLabel" type="Label" parent="StatusScroll/TopPanel"]
+[node name="EvolutionLabel" type="Label" parent="InfoExpandedPanel/StatusScroll/TopPanel"]
 unique_name_in_owner = true
 layout_mode = 2
 text = "進化：0 / 0"
@@ -184,24 +162,19 @@ horizontal_alignment = 1
 [node name="InventoryBackdrop" type="ColorRect" parent="."]
 unique_name_in_owner = true
 layout_mode = 1
-anchors_preset = 10
-anchor_right = 1.0
-offset_left = 1180.0
-offset_top = 28.0
-offset_right = -28.0
-offset_bottom = 180.0
 mouse_filter = 2
 color = Color(0.02, 0.07, 0.1, 0.96)
 
-[node name="InventoryLabel" type="Label" parent="."]
+[node name="CoinLabel" type="Label" parent="InventoryBackdrop"]
 unique_name_in_owner = true
 layout_mode = 1
-anchors_preset = 10
-anchor_right = 1.0
-offset_left = 1200.0
-offset_top = 48.0
-offset_right = -48.0
-offset_bottom = 164.0
+text = "泡泡幣：0"
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 22
+
+[node name="InventoryLabel" type="Label" parent="InventoryBackdrop"]
+unique_name_in_owner = true
+layout_mode = 1
 text = "飼料 ∞\n餅乾 ×0\n藥水 ×0"
 
 [node name="RuntimeLogPanel" parent="." instance=ExtResource("3_log")]
@@ -227,121 +200,121 @@ offset_bottom = 574.0
 text = "歡迎回來，水母喵！"
 horizontal_alignment = 1
 
-[node name="ActionBackdrop" type="ColorRect" parent="."]
+[node name="BottomHUD" type="ColorRect" parent="."]
 unique_name_in_owner = true
 layout_mode = 1
-anchors_preset = 12
-anchor_top = 1.0
-anchor_right = 1.0
-anchor_bottom = 1.0
-offset_left = 870.0
-offset_top = -342.0
-offset_right = -18.0
-offset_bottom = -18.0
 mouse_filter = 2
 color = Color(0.02, 0.07, 0.1, 0.96)
+z_index = 2
 
-[node name="ActionBar" type="GridContainer" parent="."]
+[node name="PetInfoButton" type="Button" parent="."]
 unique_name_in_owner = true
 layout_mode = 1
-anchors_preset = 12
-anchor_top = 1.0
+text = ""
+z_index = 2
+
+[node name="PetSummaryContent" type="VBoxContainer" parent="PetInfoButton"]
+layout_mode = 1
+anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
-offset_left = 880.0
-offset_top = -330.0
-offset_right = -28.0
-offset_bottom = -28.0
-columns = 2
-theme_override_constants/h_separation = 12
-theme_override_constants/v_separation = 12
+offset_left = 8.0
+offset_top = 4.0
+offset_right = -8.0
+offset_bottom = -4.0
+mouse_filter = 2
+theme_override_constants/separation = 2
 
-[node name="FeedButton" type="Button" parent="ActionBar"]
+[node name="PetSummaryLabel" type="Label" parent="PetInfoButton/PetSummaryContent"]
 unique_name_in_owner = true
 layout_mode = 2
-custom_minimum_size = Vector2(310, 50)
-text = "投食"
+text = "寵物資料"
+mouse_filter = 2
 
-[node name="TouchButton" type="Button" parent="ActionBar"]
+[node name="PetGrowthBar" type="ProgressBar" parent="PetInfoButton/PetSummaryContent"]
 unique_name_in_owner = true
 layout_mode = 2
-custom_minimum_size = Vector2(310, 50)
-text = "摸摸"
+custom_minimum_size = Vector2(0, 12)
+show_percentage = false
 
-[node name="NurseryButton" type="Button" parent="ActionBar"]
+[node name="ActionScroll" type="ScrollContainer" parent="."]
 unique_name_in_owner = true
-layout_mode = 2
-custom_minimum_size = Vector2(310, 50)
-text = "孵蛋（3）"
-
-[node name="MoreButton" type="Button" parent="ActionBar"]
-unique_name_in_owner = true
-layout_mode = 2
-custom_minimum_size = Vector2(310, 50)
-text = "更多"
-
-[node name="MorePanel" type="PanelContainer" parent="."]
-unique_name_in_owner = true
-visible = false
 layout_mode = 1
 mouse_filter = 0
+horizontal_scroll_mode = 1
+vertical_scroll_mode = 0
 z_index = 3
 
-[node name="MoreContent" type="VBoxContainer" parent="MorePanel"]
+[node name="ActionBar" type="HBoxContainer" parent="ActionScroll"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/separation = 0
+
+[node name="PrimaryActions" type="HBoxContainer" parent="ActionScroll/ActionBar"]
+unique_name_in_owner = true
 layout_mode = 2
 theme_override_constants/separation = 8
 
-[node name="MoreTitle" type="Label" parent="MorePanel/MoreContent"]
-layout_mode = 2
-text = "更多操作"
-horizontal_alignment = 1
-theme_override_font_sizes/font_size = 20
-
-[node name="MoreItemsScroll" type="ScrollContainer" parent="MorePanel/MoreContent"]
-layout_mode = 2
-size_flags_vertical = 3
-
-[node name="MoreItems" type="GridContainer" parent="MorePanel/MoreContent/MoreItemsScroll"]
+[node name="FeedButton" type="Button" parent="ActionScroll/ActionBar/PrimaryActions"]
 unique_name_in_owner = true
 layout_mode = 2
-columns = 2
-theme_override_constants/h_separation = 4
-theme_override_constants/v_separation = 8
+text = "投食"
 
-[node name="CookieButton" type="Button" parent="MorePanel/MoreContent/MoreItemsScroll/MoreItems"]
+[node name="TouchButton" type="Button" parent="ActionScroll/ActionBar/PrimaryActions"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "摸摸"
+
+[node name="NurseryButton" type="Button" parent="ActionScroll/ActionBar/PrimaryActions"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "育嬰室（3）"
+
+[node name="MoreButton" type="Button" parent="ActionScroll/ActionBar/PrimaryActions"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "更多"
+
+[node name="MoreItems" type="HBoxContainer" parent="ActionScroll/ActionBar"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="CookieButton" type="Button" parent="ActionScroll/ActionBar/MoreItems"]
 unique_name_in_owner = true
 layout_mode = 2
 text = "餅乾"
 
-[node name="CleanButton" type="Button" parent="MorePanel/MoreContent/MoreItemsScroll/MoreItems"]
+[node name="CleanButton" type="Button" parent="ActionScroll/ActionBar/MoreItems"]
 unique_name_in_owner = true
 layout_mode = 2
 text = "清潔"
 
-[node name="MedicineButton" type="Button" parent="MorePanel/MoreContent/MoreItemsScroll/MoreItems"]
+[node name="MedicineButton" type="Button" parent="ActionScroll/ActionBar/MoreItems"]
 unique_name_in_owner = true
 layout_mode = 2
 text = "藥水"
 
-[node name="EvolveButton" type="Button" parent="MorePanel/MoreContent/MoreItemsScroll/MoreItems"]
+[node name="EvolveButton" type="Button" parent="ActionScroll/ActionBar/MoreItems"]
 unique_name_in_owner = true
 layout_mode = 2
 text = "進化"
 
-[node name="ShopButton" type="Button" parent="MorePanel/MoreContent/MoreItemsScroll/MoreItems"]
+[node name="ShopButton" type="Button" parent="ActionScroll/ActionBar/MoreItems"]
 unique_name_in_owner = true
 layout_mode = 2
 text = "商店"
 
-[node name="DailyFoodButton" type="Button" parent="MorePanel/MoreContent/MoreItemsScroll/MoreItems"]
-unique_name_in_owner = true
-layout_mode = 2
-text = "每日飼料"
-
-[node name="LogToggleButton" type="Button" parent="MorePanel/MoreContent/MoreItemsScroll/MoreItems"]
+[node name="LogToggleButton" type="Button" parent="ActionScroll/ActionBar/MoreItems"]
 unique_name_in_owner = true
 layout_mode = 2
 text = "日誌"
+
+[node name="BackToPrimaryButton" type="Button" parent="ActionScroll/ActionBar/MoreItems"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "返回"
 
 [node name="ModalOverlay" type="Control" parent="."]
 unique_name_in_owner = true

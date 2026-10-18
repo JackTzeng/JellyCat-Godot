@@ -14,7 +14,7 @@ config/name="JellyCat"
 config/description="2D idle pet prototype: 水母喵 / JellyCat"
 run/main_scene="res://scenes/boot/boot.tscn"
 config/features=PackedStringArray("4.2")
-config/icon="res://assets/placeholders/icon.svg"
+config/icon="res://assets/app_icon/icon_512.png"
 
 [autoload]
 
