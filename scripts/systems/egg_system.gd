@@ -2,17 +2,17 @@ extends Node
 
 class_name EggSystem
 
-static func create_starter_egg(species_id: String = "normal_jellycat") -> Dictionary:
-	var required: int = int(GameApp.get_balance_value("egg_required_clicks", 10))
-	return {
-		"species_id": species_id,
-		"source": "starter",
-		"required_clicks": required,
-		"current_clicks": 0,
-		"is_hatched": false
-	}
+
+static func ensure_starter_eggs() -> Array[Dictionary]:
+	var added: int = GameState.ensure_starter_eggs()
+	if added > 0:
+		RuntimeLogger.log_state("Starter companion eggs added: %d" % added)
+	return GameState.get_nursery_eggs()
 
 
-static func select_starter_egg() -> void:
-	GameState.set_egg(create_starter_egg())
-	RuntimeLogger.log_state("Starter egg created")
+static func select_starter_egg(egg_id: String) -> bool:
+	if not GameState.set_active_egg_id(egg_id):
+		RuntimeLogger.log_error("Cannot select missing egg: %s" % egg_id)
+		return false
+	RuntimeLogger.log_state("Active nursery egg selected: %s" % egg_id)
+	return true

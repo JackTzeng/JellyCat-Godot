@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://be38fx643txpj"
-path="res://.godot/imported/aquarium_tank.png-dba3762e4ae744e9ed50a0255699c590.ctex"
+uid="uid://brm18nutocegq"
+path="res://.godot/imported/coin_pickup_fx_round_v2_32.png-b269b07d82657b76210db0feee35eb4a.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/backgrounds/aquarium_tank.png"
-dest_files=["res://.godot/imported/aquarium_tank.png-dba3762e4ae744e9ed50a0255699c590.ctex"]
+source_file="res://assets/coins/coin_pickup_fx_round_v2_32.png"
+dest_files=["res://.godot/imported/coin_pickup_fx_round_v2_32.png-b269b07d82657b76210db0feee35eb4a.ctex"]
 
 [params]
 

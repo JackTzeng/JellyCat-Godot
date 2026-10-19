@@ -17,18 +17,18 @@ layout_mode = 2
 [node name="TitleLabel" type="Label" parent="Main/Header"]
 layout_mode = 2
 size_flags_horizontal = 3
-text = "Shop"
+text = "商店"
 theme_override_font_sizes/font_size = 20
 
 [node name="CloseShopButton" type="Button" parent="Main/Header"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "Close"
+text = "關閉"
 
 [node name="ShopCoinLabel" type="Label" parent="Main"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "Bubble Coin: 0"
+text = "泡泡幣：0"
 
 [node name="FoodRow" type="HBoxContainer" parent="Main"]
 layout_mode = 2
@@ -37,26 +37,12 @@ layout_mode = 2
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
-text = "Food"
+text = "飼料"
 
 [node name="BuyFoodButton" type="Button" parent="Main/FoodRow"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "Buy"
-
-[node name="CookieRow" type="HBoxContainer" parent="Main"]
-layout_mode = 2
-
-[node name="CookieInfoLabel" type="Label" parent="Main/CookieRow"]
-unique_name_in_owner = true
-layout_mode = 2
-size_flags_horizontal = 3
-text = "Cookie"
-
-[node name="BuyCookieButton" type="Button" parent="Main/CookieRow"]
-unique_name_in_owner = true
-layout_mode = 2
-text = "Buy"
+text = "購買"
 
 [node name="MedicineRow" type="HBoxContainer" parent="Main"]
 layout_mode = 2
@@ -65,12 +51,12 @@ layout_mode = 2
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
-text = "Medicine"
+text = "藥水"
 
 [node name="BuyMedicineButton" type="Button" parent="Main/MedicineRow"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "Buy"
+text = "購買"
 
 [node name="ShopStatusLabel" type="Label" parent="Main"]
 unique_name_in_owner = true

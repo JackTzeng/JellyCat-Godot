@@ -7,4 +7,4 @@ layout_mode = 2
 
 [node name="Label" type="Label" parent="Content"]
 layout_mode = 2
-text = "Status Panel Placeholder"
+text = "狀態面板"
