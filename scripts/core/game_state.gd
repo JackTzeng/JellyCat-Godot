@@ -406,6 +406,22 @@ func get_food_drops() -> Array[Dictionary]:
 	return result
 
 
+func set_food_drop_expiration(token_id: String, expires_at: float) -> bool:
+	var aquarium: Dictionary = data["aquarium"] as Dictionary
+	var drops: Array = aquarium.get("food_drops", []) as Array
+	for drop_value in drops:
+		if not (drop_value is Dictionary):
+			continue
+		var drop: Dictionary = drop_value as Dictionary
+		if str(drop.get("token_id", "")) != token_id:
+			continue
+		drop["expires_at"] = maxf(expires_at, Time.get_unix_time_from_system() + 0.001)
+		aquarium["food_drops"] = drops
+		mark_changed()
+		return true
+	return false
+
+
 func get_max_active_food_drops() -> int:
 	return max(int(GameApp.get_balance_value("max_active_food_drops")), 0)
 
@@ -428,7 +444,7 @@ func reserve_food_drop(item_id: String, position: Vector2, expires_at: float) ->
 		"item_id": item_id,
 		"x": position.x,
 		"y": position.y,
-		"expires_at": maxf(expires_at, Time.get_unix_time_from_system() + 1.0)
+		"expires_at": maxf(expires_at, Time.get_unix_time_from_system() + 0.001)
 	})
 	aquarium["food_drops"] = drops
 	mark_changed()

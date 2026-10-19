@@ -17,15 +17,16 @@ static func touch_pet(pet_id: String, injected_now_seconds: float = -1.0) -> boo
 		return false
 	var care_stats: Dictionary = GameState.get_current_care_stats(pet_id)
 	var now_seconds: float = Time.get_unix_time_from_system() if injected_now_seconds < 0.0 else injected_now_seconds
+	var gameplay_now_seconds: float = TimeManager.gameplay_now_seconds(now_seconds)
 	var cooldown: float = maxf(float(GameApp.get_balance_value("touch_cooldown_seconds")), 0.0)
 	var last_touch: float = float(care_stats.get("last_touch_effect_at", 0.0))
 	if now_seconds - last_touch < cooldown:
-		RuntimeLogger.log_info_throttled("touch_cooldown_%s" % pet_id, "Touch ignored: cooldown")
+		RuntimeLogger.log_info_throttled("touch_cooldown_%s" % pet_id, "Touch ignored for %s: cooldown" % pet_id)
 		return false
 	var reset_seconds: float = maxf(float(GameApp.get_balance_value("touch_exp_reset_seconds")), 1.0)
 	var window_started_at: float = float(care_stats.get("touch_exp_hour_started_at", 0.0))
-	if window_started_at <= 0.0 or now_seconds < window_started_at or now_seconds - window_started_at >= reset_seconds:
-		window_started_at = now_seconds
+	if window_started_at <= 0.0 or gameplay_now_seconds < window_started_at or gameplay_now_seconds - window_started_at >= reset_seconds:
+		window_started_at = gameplay_now_seconds
 		care_stats["touch_exp_hour_started_at"] = window_started_at
 		care_stats["touch_exp_hour_id"] = str(window_started_at)
 		care_stats["touch_growth_exp_hour"] = 0
@@ -86,7 +87,7 @@ static func give_medicine(pet_id: String) -> bool:
 	pet["health"] = "healthy"
 	pet["last_medicine_at"] = Time.get_datetime_string_from_system()
 	GameState.set_pet(pet_id, pet)
-	RuntimeLogger.log_state("health: %s -> healthy" % old_health)
+	RuntimeLogger.log_state("%s health: %s -> healthy" % [pet_id, old_health])
 	return true
 
 
@@ -95,8 +96,12 @@ static func simulate_days(days: float) -> void:
 
 
 static func apply_online_care_decay(elapsed_seconds: int) -> void:
+	if elapsed_seconds <= 0:
+		return
 	var seconds_per_minute: int = max(int(GameApp.get_balance_value("seconds_per_minute")), 1)
 	var minutes: int = int(floor(float(max(elapsed_seconds, 0)) / float(seconds_per_minute)))
+	_apply_online_cleanliness_decay(elapsed_seconds)
+	_apply_sickness_for_dirty_tank(int(GameState.get_aquarium().get("cleanliness", 0)))
 	if minutes <= 0:
 		return
 	var hunger_decay: int = max(int(GameApp.get_balance_value("hunger_decay_per_minute")), 0)
@@ -134,6 +139,9 @@ static func apply_offline_care_decay(elapsed_seconds: int) -> void:
 	var max_mood: int = int(GameApp.get_balance_value("max_mood"))
 	var hunger_floor: int = clampi(int(GameApp.get_balance_value("offline_hunger_floor")), 0, max_hunger)
 	var mood_floor: int = clampi(int(GameApp.get_balance_value("offline_mood_floor")), 0, max_mood)
+	var sick_threshold: int = int(GameApp.get_balance_value("sick_cleanliness_threshold", 0))
+	var configured_cleanliness_floor: int = int(GameApp.get_balance_value("offline_cleanliness_floor", sick_threshold + 1))
+	var cleanliness_floor: int = clampi(maxi(configured_cleanliness_floor, sick_threshold + 1), 0, int(GameApp.get_balance_value("max_cleanliness")))
 	for pet_id in GameState.get_pet_ids():
 		var pet: Dictionary = GameState.get_pet(pet_id)
 		var species: Dictionary = _get_table_entry("species", str(pet.get("species_id", "normal_jellycat")))
@@ -158,16 +166,39 @@ static func apply_offline_care_decay(elapsed_seconds: int) -> void:
 		cleanliness_decay = float(first_species.get("cleanliness_decay_per_day", 0))
 	var max_cleanliness: int = int(GameApp.get_balance_value("max_cleanliness"))
 	var old_cleanliness: int = int(aquarium.get("cleanliness", max_cleanliness))
-	var next_cleanliness: int = clampi(old_cleanliness - int(round(cleanliness_decay * days)), 0, max_cleanliness)
+	var next_cleanliness: int = clampi(maxi(old_cleanliness - int(round(cleanliness_decay * days)), cleanliness_floor), cleanliness_floor, max_cleanliness)
 	GameState.set_aquarium_cleanliness(next_cleanliness)
 	_log_int_change("tank cleanliness", old_cleanliness, next_cleanliness)
-	if next_cleanliness <= 0:
-		for pet_id in pet_ids:
-			var pet: Dictionary = GameState.get_pet(pet_id)
-			if str(pet.get("health", "healthy")) == "healthy":
-				pet["health"] = "sick"
-				if GameState.set_pet(pet_id, pet):
-					RuntimeLogger.log_state("%s health healthy -> sick: tank cleanliness reached 0" % pet_id)
+	if next_cleanliness <= sick_threshold:
+		_apply_sickness_for_dirty_tank(next_cleanliness)
+
+
+static func _apply_online_cleanliness_decay(elapsed_seconds: int) -> void:
+	var pet_ids: Array[String] = GameState.get_pet_ids()
+	if pet_ids.is_empty():
+		return
+	var first_pet: Dictionary = GameState.get_pet(pet_ids[0])
+	var species: Dictionary = _get_table_entry("species", str(first_pet.get("species_id", "normal_jellycat")))
+	var decay_per_day: float = maxf(float(species.get("cleanliness_decay_per_day", 0.0)), 0.0)
+	var decay_points: int = TimeManager.consume_online_cleanliness_decay(float(elapsed_seconds), decay_per_day)
+	if decay_points <= 0:
+		return
+	var old_cleanliness: int = int(GameState.get_aquarium().get("cleanliness", GameApp.get_balance_value("max_cleanliness")))
+	GameState.set_aquarium_cleanliness(maxi(0, old_cleanliness - decay_points))
+	_log_int_change("tank cleanliness", old_cleanliness, maxi(0, old_cleanliness - decay_points))
+
+
+static func _apply_sickness_for_dirty_tank(cleanliness: int) -> void:
+	var threshold: int = int(GameApp.get_balance_value("sick_cleanliness_threshold", 0))
+	if cleanliness > threshold:
+		return
+	for pet_id in GameState.get_pet_ids():
+		var pet: Dictionary = GameState.get_pet(pet_id)
+		if str(pet.get("health", "healthy")) != "healthy":
+			continue
+		pet["health"] = "sick"
+		if GameState.set_pet(pet_id, pet):
+			RuntimeLogger.log_state("%s health healthy -> sick: tank cleanliness %d <= %d" % [pet_id, cleanliness, threshold])
 
 
 static func build_fed_pet_data(pet_id: String, item_id: String) -> Dictionary:

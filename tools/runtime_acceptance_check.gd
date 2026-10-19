@@ -159,11 +159,13 @@ func _check_touch_balance() -> void:
 		"touch_cap_notified_hour_id": ""
 	}
 	GameState.set_pet_and_care_stats(pet_id, pet, initial_stats)
+	RuntimeLogger.clear()
 	var injected_now: float = Time.get_unix_time_from_system()
 	_expect(CareSystem.touch_pet(pet_id, injected_now), "First touch succeeds for explicit pet ID")
 	var exp_after_first: int = int(GameState.get_pet(pet_id).get("growth_exp", -1))
 	_expect(not CareSystem.touch_pet(pet_id, injected_now + touch_cooldown / 2.0), "Immediate touch is blocked by configured cooldown")
 	_expect(int(GameState.get_pet(pet_id).get("growth_exp", -1)) == exp_after_first, "Cooldown touch adds no EXP")
+	_expect(RuntimeLogger.get_log_text().contains("Touch ignored for %s: cooldown" % pet_id), "Touch cooldown log carries the stable pet ID on the same line")
 	var touch_calls_needed: int = int(ceil(float(touch_cap) / float(max(touch_exp_add, 1))))
 	var touch_spacing: float = maxf(touch_cooldown * 2.0, 0.01)
 	for touch_index in range(1, touch_calls_needed):
@@ -180,6 +182,16 @@ func _check_touch_balance() -> void:
 	_expect(int(GameState.get_pet(pet_id).get("growth_exp", -1)) == capped_exp and int(GameState.get_pet(pet_id).get("mood", -1)) == mini(max_mood, mood_before_capped_touch + touch_mood_add), "Touch after cap adds configured mood but no EXP")
 	_expect(CareSystem.touch_pet(pet_id, injected_now + reset_seconds), "Touch succeeds after the configured rolling hour")
 	_expect(int(GameState.get_current_care_stats(pet_id).get("touch_growth_exp_hour", -1)) == mini(touch_exp_add, touch_cap), "Touch hourly counter resets after the configured duration")
+	var touch_log_lines_have_pet_id: bool = true
+	var touch_log_line_count: int = 0
+	for log_entry in RuntimeLogger.get_logs():
+		if not (log_entry is Dictionary):
+			continue
+		var log_message: String = str((log_entry as Dictionary).get("message", ""))
+		if log_message.contains("touch") or log_message.contains("Touch") or log_message.contains("mood:") or log_message.contains("growth_exp:"):
+			touch_log_line_count += 1
+			touch_log_lines_have_pet_id = touch_log_lines_have_pet_id and log_message.contains(pet_id)
+	_expect(touch_log_line_count > 0 and touch_log_lines_have_pet_id, "Every emitted touch, cooldown, mood, and touch-growth log line carries the stable pet ID")
 	var other_id: String = GameState.get_pet_ids()[1]
 	_expect(int(GameState.get_current_care_stats(other_id).get("touch_growth_exp_hour", -1)) == 0, "Touch cap is saved independently for each pet")
 	var before_food_exp: int = int(GameState.get_pet(pet_id).get("growth_exp", 0))
@@ -241,10 +253,11 @@ func _check_evolution_and_economy() -> void:
 	_expect(not ShopSystem.buy_item("food_basic"), "Food purchase transaction is rejected")
 	_expect(GameState.get_currency("bubble_coin") == 100, "Rejected food purchase leaves currency unchanged")
 	_expect(GameState.get_inventory_count("food_basic") == old_food, "Rejected food purchase leaves the legacy quantity unchanged")
-	_expect(ShopSystem.buy_item("cookie_basic"), "Shop buys cookies")
-	_expect(GameState.get_currency("bubble_coin") == 92, "Cookie purchase costs eight coins after unlimited food is rejected")
+	var old_cookie: int = GameState.get_inventory_count("cookie_basic")
+	_expect(not ShopSystem.can_buy("cookie_basic") and not ShopSystem.buy_item("cookie_basic"), "Legacy cookies are no longer purchasable in the shop")
+	_expect(GameState.get_currency("bubble_coin") == 100 and GameState.get_inventory_count("cookie_basic") == old_cookie, "Rejected legacy-cookie purchase changes neither currency nor saved inventory")
 	_expect(ShopSystem.buy_item("medicine_basic"), "Shop buys medicine")
-	_expect(GameState.get_currency("bubble_coin") == 72, "Medicine purchase costs twenty coins after unlimited food is rejected")
+	_expect(GameState.get_currency("bubble_coin") == 80, "Medicine purchase costs twenty coins after food and cookie purchases are rejected")
 	GameState.set_currency("bubble_coin", 0)
 	var medicine_before: int = GameState.get_inventory_count("medicine_basic")
 	_expect(not ShopSystem.buy_item("medicine_basic"), "Insufficient coin purchase fails")
@@ -276,6 +289,8 @@ func _check_evolution_and_economy() -> void:
 
 
 func _check_json_round_trip_and_save_load() -> void:
+	var original_cookie_count: int = GameState.get_inventory_count("cookie_basic")
+	GameState.set_inventory_count("cookie_basic", 17)
 	var before_save: Dictionary = GameState.to_save_dict()
 	var serialized: String = JSON.stringify(before_save)
 	var parsed: Variant = JSON.parse_string(serialized)
@@ -301,13 +316,18 @@ func _check_json_round_trip_and_save_load() -> void:
 	_expect(loaded.get("nursery", {}) == expected.get("nursery", {}), "Save/load preserves nursery queue")
 	_expect(GameState.get_currency("bubble_coin") == int((expected.get("currency", {}) as Dictionary).get("bubble_coin", -1)), "Save/load preserves shared currency")
 	_expect(GameState.get_inventory_count("food_basic") == int((expected.get("inventory", {}) as Dictionary).get("food_basic", -1)), "Save/load preserves shared inventory")
+	_expect(GameState.get_inventory_count("cookie_basic") == 17, "Save/load preserves the legacy cookie inventory field")
 	var old_save_fixture: Dictionary = GameState.to_save_dict()
 	var old_save_inventory: Dictionary = old_save_fixture.get("inventory", {}) as Dictionary
 	old_save_inventory["food_basic"] = 17
+	old_save_inventory["cookie_basic"] = 23
 	var prepared_old_save: Dictionary = GameState.prepare_data(old_save_fixture)
 	var prepared_old_data: Dictionary = prepared_old_save.get("data", {}) as Dictionary
 	var prepared_old_inventory: Dictionary = prepared_old_data.get("inventory", {}) as Dictionary
 	_expect(bool(prepared_old_save.get("ok", false)) and int(prepared_old_inventory.get("food_basic", -1)) == 17, "Save migration preserves an existing food_basic field value")
+	_expect(bool(prepared_old_save.get("ok", false)) and int(prepared_old_inventory.get("cookie_basic", -1)) == 23, "Save migration preserves an existing cookie_basic field value")
+	GameState.set_inventory_count("cookie_basic", original_cookie_count)
+	SaveManager.save_game()
 	_expect(SaveManager.get_save_path() == ISOLATED_SAVE_PATH, "Save/load remains isolated from the production path")
 
 
@@ -570,14 +590,13 @@ func _check_g2_care_regressions() -> void:
 	var eligible_count: int = CoinDropSystem.get_eligible_pet_ids().size()
 	_expect(CurrencySystem.calculate_passive_income(passive_interval - 1) == 0, "Online passive coins wait for the configured interval")
 	_expect(CurrencySystem.calculate_passive_income(passive_interval) == eligible_count * passive_amount, "Online passive income uses one configured amount per eligible pet")
-	var species: Dictionary = GameApp.get_table("species").get("normal_jellycat", {}) as Dictionary
-	var hunger_per_day: float = float(species.get("hunger_decay_per_day", 0))
-	var mood_per_day: float = float(species.get("mood_decay_per_day", 0))
 	var hunger_floor: int = int(GameApp.get_balance_value("offline_hunger_floor"))
 	var mood_floor: int = int(GameApp.get_balance_value("offline_mood_floor"))
-	var days_to_hunger_floor: float = float(max_hunger - hunger_floor) / maxf(hunger_per_day, 0.001)
-	var days_to_mood_floor: float = float(max_mood - mood_floor) / maxf(mood_per_day, 0.001)
-	var offline_test_days: int = int(ceil(maxf(days_to_hunger_floor, days_to_mood_floor)))
+	var offline_test_days: int = 10
+	var offline_snapshot: Dictionary = GameState.to_save_dict().duplicate(true)
+	var previous_time_scale: int = TimeManager.get_time_scale()
+	var sick_threshold: int = int(GameApp.get_balance_value("sick_cleanliness_threshold", 0))
+	var cleanliness_floor: int = int(GameApp.get_balance_value("offline_cleanliness_floor", sick_threshold + 1))
 	GameState.set_aquarium_cleanliness(int(GameApp.get_balance_value("max_cleanliness")))
 	for active_pet_id in pet_ids:
 		var active_pet: Dictionary = GameState.get_pet(active_pet_id)
@@ -585,15 +604,36 @@ func _check_g2_care_regressions() -> void:
 		active_pet["mood"] = max_mood
 		active_pet["health"] = "healthy"
 		GameState.set_pet(active_pet_id, active_pet)
+	TimeManager.set_time_scale(60)
 	CareSystem.apply_offline_care_decay(offline_test_days * TimeManager.SECONDS_PER_DAY)
 	var offline_floors_hold: bool = true
 	var offline_health_unchanged: bool = true
+	var offline_cleanliness_is_floor: bool = int(GameState.get_aquarium().get("cleanliness", -1)) == cleanliness_floor
 	for active_pet_id in pet_ids:
 		var offline_pet: Dictionary = GameState.get_pet(active_pet_id)
 		offline_floors_hold = offline_floors_hold and int(offline_pet.get("hunger", -1)) >= hunger_floor and int(offline_pet.get("mood", -1)) >= mood_floor
 		offline_health_unchanged = offline_health_unchanged and str(offline_pet.get("health", "")) == "healthy"
+	print("RUNTIME_OFFLINE_10D days=%d cleanliness=%d floor=%d threshold=%d floors_hold=%s healthy=%s time_scale=%d" % [offline_test_days, int(GameState.get_aquarium().get("cleanliness", -1)), cleanliness_floor, sick_threshold, str(offline_floors_hold), str(offline_health_unchanged), TimeManager.get_time_scale()])
 	_expect(offline_floors_hold, "Offline hunger and mood remain above their configured floors")
-	_expect(offline_health_unchanged, "Offline hunger decay does not make healthy pets sick")
+	_expect(offline_test_days == 10 and offline_health_unchanged and offline_cleanliness_is_floor and cleanliness_floor > sick_threshold, "Ten offline days clamp water above the sickness threshold without making any healthy pet sick, even with ×60 active")
+	var old_sick_pet_id: String = pet_ids[0]
+	var old_sick_pet: Dictionary = GameState.get_pet(old_sick_pet_id)
+	old_sick_pet["health"] = "sick"
+	GameState.set_pet(old_sick_pet_id, old_sick_pet)
+	CareSystem.apply_offline_care_decay(10 * TimeManager.SECONDS_PER_DAY)
+	_expect(str(GameState.get_pet(old_sick_pet_id).get("health", "")) == "sick", "Offline decay does not automatically cure an already-sick saved pet")
+	for active_pet_id in pet_ids:
+		var healthy_pet: Dictionary = GameState.get_pet(active_pet_id)
+		healthy_pet["health"] = "healthy"
+		GameState.set_pet(active_pet_id, healthy_pet)
+	GameState.set_aquarium_cleanliness(sick_threshold)
+	CareSystem.apply_online_care_decay(1)
+	var online_sickness_applied: bool = true
+	for active_pet_id in pet_ids:
+		online_sickness_applied = online_sickness_applied and str(GameState.get_pet(active_pet_id).get("health", "")) == "sick"
+	_expect(online_sickness_applied, "Online dirty-water sickness still applies at the configured threshold")
+	TimeManager.set_time_scale(previous_time_scale)
+	GameState.set_data(offline_snapshot)
 
 
 func _check_day1_simulation() -> void:

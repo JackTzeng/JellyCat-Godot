@@ -8,7 +8,7 @@ var online_care_elapsed_seconds: float = 0.0
 func _process(delta: float) -> void:
 	if not loaded:
 		return
-	online_care_elapsed_seconds += maxf(delta, 0.0)
+	online_care_elapsed_seconds += TimeManager.scale_delta(delta)
 	var seconds_per_minute: int = max(int(get_balance_value("seconds_per_minute")), 1)
 	var whole_ticks: int = int(floor(online_care_elapsed_seconds / float(seconds_per_minute)))
 	if whole_ticks <= 0:

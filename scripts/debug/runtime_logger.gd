@@ -20,6 +20,11 @@ func log_state(message: String) -> void:
 	_add_log("STATE", message)
 
 
+func log_state_throttled(key: String, message: String, seconds: float = 0.25) -> void:
+	if _can_log_throttled("STATE:%s" % key, seconds):
+		log_state(message)
+
+
 func log_save(message: String) -> void:
 	_add_log("SAVE", message)
 

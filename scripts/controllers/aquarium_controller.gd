@@ -15,6 +15,8 @@ const PET_SLOT_COUNT: int = 3
 const FOOD_PELLET_TEXTURE: Texture2D = preload("res://assets/food/pellet_32.png")
 
 @onready var coin_label: Label = %CoinLabel
+@onready var pet_name_label: Label = %PetNameLabel
+@onready var gender_placeholder_label: Label = %GenderPlaceholderLabel
 @onready var stage_label: Label = %StageLabel
 @onready var hunger_label: Label = %HungerLabel
 @onready var hunger_bar: ProgressBar = %HungerBar
@@ -24,6 +26,7 @@ const FOOD_PELLET_TEXTURE: Texture2D = preload("res://assets/food/pellet_32.png"
 @onready var clean_bar: ProgressBar = %CleanBar
 @onready var health_label: Label = %HealthLabel
 @onready var exp_label: Label = %ExpLabel
+@onready var growth_exp_bar: ProgressBar = %GrowthExpBar
 @onready var touch_exp_label: Label = %TouchExpLabel
 @onready var evolution_label: Label = %EvolutionLabel
 @onready var inventory_label: Label = %InventoryLabel
@@ -41,7 +44,7 @@ const FOOD_PELLET_TEXTURE: Texture2D = preload("res://assets/food/pellet_32.png"
 @onready var pet_roster: HBoxContainer = %PetRoster
 @onready var pet_roster_backdrop: ColorRect = %PetRosterBackdrop
 @onready var bottom_hud: ColorRect = %BottomHUD
-@onready var info_expanded_panel: PanelContainer = %InfoExpandedPanel
+@onready var info_expanded_panel: Panel = %InfoExpandedPanel
 @onready var status_scroll: ScrollContainer = %StatusScroll
 @onready var top_panel: VBoxContainer = %TopPanel
 @onready var inventory_backdrop: ColorRect = %InventoryBackdrop
@@ -58,6 +61,8 @@ const FOOD_PELLET_TEXTURE: Texture2D = preload("res://assets/food/pellet_32.png"
 @onready var nickname_edit: LineEdit = %NicknameEdit
 @onready var rename_confirm_button: Button = %RenameConfirmButton
 @onready var rename_cancel_button: Button = %RenameCancelButton
+@onready var time_scale_button: Button = %TimeScaleButton
+@onready var time_scale_indicator: Label = %TimeScaleIndicator
 
 var passive_timer: float = 0.0
 var touch_cooldown: float = 0.0
@@ -73,6 +78,7 @@ var food_sunk_at_msec: Dictionary = {}
 var full_food_reactions_by_token: Dictionary = {}
 var food_claims: Dictionary = {}
 var hunger_bubbles_by_id: Dictionary = {}
+var hunger_bubble_suppressed_until_below: Dictionary = {}
 var roster_buttons_by_id: Dictionary = {}
 var roster_buttons_by_slot: Array[Button] = []
 var food_rng: RandomNumberGenerator = RandomNumberGenerator.new()
@@ -95,7 +101,6 @@ func _ready() -> void:
 	get_window().go_back_requested.connect(_on_android_go_back_requested)
 	GameState.state_changed.connect(_on_state_changed)
 	%FeedButton.pressed.connect(_on_feed_pressed)
-	%CookieButton.pressed.connect(_on_cookie_pressed)
 	%TouchButton.pressed.connect(_on_touch_pressed)
 	%CleanButton.pressed.connect(_on_clean_pressed)
 	%MedicineButton.pressed.connect(_on_medicine_pressed)
@@ -120,6 +125,9 @@ func _ready() -> void:
 	rename_button.pressed.connect(_on_rename_pressed)
 	rename_confirm_button.pressed.connect(_on_rename_confirmed)
 	rename_cancel_button.pressed.connect(_close_rename_panel)
+	time_scale_button.pressed.connect(_on_time_scale_pressed)
+	TimeManager.time_scale_changed.connect(_on_time_scale_changed)
+	_update_time_scale_widgets()
 	nickname_edit.gui_input.connect(_on_nickname_gui_input)
 	get_viewport().size_changed.connect(_apply_responsive_layout)
 	_apply_responsive_layout()
@@ -154,7 +162,7 @@ func _process(delta: float) -> void:
 	if touch_status_timer >= 1.0:
 		touch_status_timer = 0.0
 		_refresh_touch_exp_label()
-	passive_timer += delta
+	passive_timer += TimeManager.scale_delta(delta)
 	_update_hunger_bubbles()
 	var passive_interval: float = maxf(float(GameApp.get_balance_value("passive_coin_interval_seconds")), 1.0)
 	while passive_timer >= passive_interval:
@@ -169,17 +177,6 @@ func _on_feed_pressed() -> void:
 	var selected_pet_id: String = GameState.get_selected_pet_id()
 	var drop_position: Vector2 = _next_food_spawn_position()
 	_drop_basic_food(drop_position, selected_pet_id)
-
-
-func _on_cookie_pressed() -> void:
-	if not _accept_action("cookie"):
-		return
-	_close_more_menu()
-	if GameState.get_inventory_count("cookie_basic") <= 0:
-		_show_result(CareSystem.feed_cookie(GameState.get_selected_pet_id()), "餵了餅乾。", "餅乾不足。", false)
-		return
-	RuntimeLogger.log_action("Feed cookie clicked")
-	_show_result(CareSystem.feed_cookie(GameState.get_selected_pet_id()), "餵了餅乾。", "餅乾不足。", false)
 
 
 func _on_touch_pressed() -> void:
@@ -203,7 +200,8 @@ func _try_touch_pet(pet_id: String, actor: Node2D) -> bool:
 	var touch_cap: int = maxi(0, int(GameApp.get_balance_value("touch_growth_exp_cap")))
 	var reset_seconds: float = maxf(float(GameApp.get_balance_value("touch_exp_reset_seconds")), 1.0)
 	var started_at: float = float(care_stats.get("touch_exp_hour_started_at", 0.0))
-	var expired: bool = started_at <= 0.0 or now_seconds < started_at or now_seconds - started_at >= reset_seconds
+	var gameplay_now_seconds: float = TimeManager.gameplay_now_seconds(now_seconds)
+	var expired: bool = started_at <= 0.0 or gameplay_now_seconds < started_at or gameplay_now_seconds - started_at >= reset_seconds
 	var growth_exp_capped: bool = touch_cap == 0 or (not expired and int(care_stats.get("touch_growth_exp_hour", 0)) >= touch_cap)
 	var pet_before: Dictionary = GameState.get_pet(pet_id)
 	var mood_before: int = int(pet_before.get("mood", 0))
@@ -352,7 +350,10 @@ func _set_pet_info_widgets_visible(should_show: bool) -> void:
 	coin_label.visible = true
 	pet_info_button.visible = true
 	rename_button.visible = should_show
+	pet_growth_bar.visible = not should_show
 	for detail_control in [
+		pet_name_label,
+		gender_placeholder_label,
 		stage_label,
 		hunger_label,
 		hunger_bar,
@@ -362,6 +363,7 @@ func _set_pet_info_widgets_visible(should_show: bool) -> void:
 		clean_bar,
 		health_label,
 		exp_label,
+		growth_exp_bar,
 		touch_exp_label,
 		evolution_label,
 	]:
@@ -401,6 +403,25 @@ func _on_more_pressed() -> void:
 	action_scroll.scroll_horizontal = 0
 	_apply_responsive_layout()
 	_refresh(false)
+
+
+func _on_time_scale_pressed() -> void:
+	if rename_modal_active or not _accept_action("time_scale"):
+		return
+	var next_scale: int = 60 if TimeManager.get_time_scale() == 1 else 1
+	TimeManager.set_time_scale(next_scale)
+
+
+func _on_time_scale_changed(previous_scale: int, new_scale: int) -> void:
+	FoodDropSystem.rescale_expiration_deadlines(previous_scale, new_scale)
+	_update_time_scale_widgets()
+
+
+func _update_time_scale_widgets() -> void:
+	var scale: int = TimeManager.get_time_scale()
+	time_scale_button.text = "測試加速 ×%d" % scale
+	time_scale_indicator.text = "測試加速 ×%d" % scale
+	time_scale_indicator.visible = scale > 1
 
 
 func _close_more_menu() -> void:
@@ -585,11 +606,15 @@ func _refresh(log_refresh: bool = false) -> void:
 	var growth_exp: int = int(jellycat.get("growth_exp", 0))
 	var next_growth_exp: int = max(1, int(next_stage.get("required_growth_exp", growth_exp)))
 	coin_label.text = "泡泡幣：%d" % GameState.get_currency("bubble_coin")
-	stage_label.text = "%s　階段 %d · %s" % [str(jellycat.get("nickname", "水母喵")), int(jellycat.get("stage", 1)), str(stage_data.get("name", ""))]
-	pet_summary_label.text = "%s｜飢餓 %d｜心情 %d" % [str(jellycat.get("nickname", "水母喵")), hunger_value, mood_value]
+	var nickname: String = str(jellycat.get("nickname", "水母喵"))
+	pet_name_label.text = nickname
+	gender_placeholder_label.text = "性別：—"
+	stage_label.text = "階段 %d · %s" % [int(jellycat.get("stage", 1)), str(stage_data.get("name", ""))]
+	pet_summary_label.text = nickname if pet_info_open else "%s｜飢餓 %d｜心情 %d" % [nickname, hunger_value, mood_value]
 	pet_growth_bar.max_value = next_growth_exp
 	pet_growth_bar.value = minf(float(growth_exp), float(next_growth_exp))
 	pet_growth_bar.tooltip_text = "成長經驗：%d／%d" % [growth_exp, next_growth_exp]
+	pet_growth_bar.visible = not pet_info_open
 	hunger_label.text = "飢餓：%d / 100" % hunger_value
 	mood_label.text = "心情：%d / 100" % mood_value
 	cleanliness_label.text = "清潔度：%d / 100" % cleanliness_value
@@ -598,7 +623,10 @@ func _refresh(log_refresh: bool = false) -> void:
 	clean_bar.value = cleanliness_value
 	var health_text: String = "生病" if str(jellycat.get("health", "healthy")) == "sick" else "正常"
 	health_label.text = "健康：%s" % health_text
-	exp_label.text = "成長經驗：%d" % growth_exp
+	exp_label.text = "成長經驗：%d / %d" % [growth_exp, next_growth_exp]
+	growth_exp_bar.max_value = next_growth_exp
+	growth_exp_bar.value = minf(float(growth_exp), float(next_growth_exp))
+	growth_exp_bar.tooltip_text = "成長經驗：%d／%d" % [growth_exp, next_growth_exp]
 	_refresh_touch_exp_label()
 	inventory_label.text = "飼料 ∞\n餅乾 ×%d\n藥水 ×%d" % [
 		GameState.get_inventory_count("cookie_basic"),
@@ -629,7 +657,7 @@ func _refresh_touch_exp_label() -> void:
 	var care_stats: Dictionary = GameState.get_current_care_stats(GameState.get_selected_pet_id())
 	var touch_cap: int = int(GameApp.get_balance_value("touch_growth_exp_cap"))
 	var reset_seconds: float = max(float(GameApp.get_balance_value("touch_exp_reset_seconds")), 1.0)
-	var now_seconds: float = Time.get_unix_time_from_system()
+	var now_seconds: float = TimeManager.gameplay_now_seconds()
 	var started_at: float = float(care_stats.get("touch_exp_hour_started_at", 0.0))
 	var elapsed: float = now_seconds - started_at
 	if started_at <= 0.0 or elapsed < 0.0 or elapsed >= reset_seconds:
@@ -651,9 +679,19 @@ func _update_hunger_bubbles() -> void:
 		var pet: Dictionary = GameState.get_pet(pet_id)
 		var actor: Node2D = actors_by_id.get(pet_id) as Node2D
 		var hunger: int = int(pet.get("hunger", 100))
-		if actor == null or hunger > hungry_max:
-			continue
+		if hunger_bubble_suppressed_until_below.has(pet_id):
+			var suppressed_hunger: int = int(hunger_bubble_suppressed_until_below[pet_id])
+			if hunger < suppressed_hunger:
+				hunger_bubble_suppressed_until_below.erase(pet_id)
+			else:
+				continue
 		var bubble: PanelContainer = hunger_bubbles_by_id.get(pet_id) as PanelContainer
+		if actor == null or hunger > hungry_max:
+			hunger_bubbles_by_id.erase(pet_id)
+			if is_instance_valid(bubble):
+				bubble.visible = false
+				bubble.queue_free()
+			continue
 		if bubble == null or not is_instance_valid(bubble):
 			bubble = PanelContainer.new()
 			bubble.name = "HungryBubble_%s" % pet_id
@@ -691,6 +729,19 @@ func _update_hunger_bubbles() -> void:
 		hunger_bubbles_by_id.erase(pet_id)
 		if is_instance_valid(stale_bubble):
 			stale_bubble.queue_free()
+
+
+func _suppress_hunger_bubble_until_decrease(pet_id: String, hunger: int) -> void:
+	var hungry_max: int = int(GameApp.get_balance_value("hungry_hunger_max"))
+	if hunger > hungry_max:
+		hunger_bubble_suppressed_until_below.erase(pet_id)
+		return
+	hunger_bubble_suppressed_until_below[pet_id] = hunger
+	var bubble: Control = hunger_bubbles_by_id.get(pet_id) as Control
+	hunger_bubbles_by_id.erase(pet_id)
+	if is_instance_valid(bubble):
+		bubble.visible = false
+		bubble.queue_free()
 
 
 func _accept_action(action_name: String) -> bool:
@@ -930,17 +981,25 @@ func _layout_ui(viewport_size: Vector2, safe_rect: Rect2, touch_target_override:
 	var water_top: float = message_label.position.y + message_label.size.y + margin
 	var water_bottom: float = hud_y - margin
 	if pet_info_open:
-		var expanded_height: float = minf(safe_height * 0.45, maxf(220.0, touch_target * 1.8))
+		var expanded_height: float = minf(safe_height * 0.45, maxf(220.0, touch_target * 2.2))
 		var expanded_rect: Rect2 = Rect2(Vector2(info_left, hud_y - expanded_height), Vector2(info_width, expanded_height))
 		_place_control(info_expanded_panel, expanded_rect)
 		_place_control(status_scroll, Rect2(Vector2(8.0, 8.0), expanded_rect.size - Vector2(16.0, 16.0)))
 		top_panel.custom_minimum_size.x = maxf(1.0, status_scroll.size.x)
-		water_bottom = minf(water_bottom, expanded_rect.position.y - margin)
+		rename_button.custom_minimum_size = Vector2(maxf(96.0, touch_target), row_height)
+		var detail_font_size: int = 14 if touch_target >= 96.0 else 16
+		for detail_label in [pet_name_label, gender_placeholder_label, stage_label, hunger_label, mood_label, cleanliness_label, health_label, exp_label, evolution_label, touch_exp_label]:
+			detail_label.add_theme_font_size_override("font_size", detail_font_size)
+			detail_label.autowrap_mode = TextServer.AUTOWRAP_OFF
+			detail_label.clip_text = false
 	else:
 		_place_control(info_expanded_panel, Rect2(Vector2(info_left, hud_y), Vector2(info_width, 1.0)))
 	var water_left: float = safe_left + margin
 	var water_right: float = safe_right - margin
 	active_water_rect = Rect2(Vector2(water_left, water_top), Vector2(maxf(1.0, water_right - water_left), maxf(1.0, water_bottom - water_top)))
+	var indicator_size: Vector2 = Vector2(176.0, 32.0)
+	_place_control(time_scale_indicator, Rect2(Vector2(water_right - indicator_size.x, water_top), indicator_size))
+	time_scale_indicator.add_theme_font_size_override("font_size", 16)
 	actor_anchor.position = Vector2.ZERO
 	var layout_actor_positions: Array[Vector2] = []
 	for pet_id in GameState.get_active_pet_ids():
@@ -984,6 +1043,8 @@ func _actor_spawn_position(index: int, count: int) -> Vector2:
 
 
 func _update_actor_panel_evasion() -> void:
+	var panel_is_opaque: bool = _is_info_panel_opaque()
+	var panel_rect: Rect2 = info_expanded_panel.get_global_rect() if panel_is_opaque else Rect2()
 	for actor_value in actors_by_id.values():
 		var actor: Node2D = actor_value as Node2D
 		if not is_instance_valid(actor):
@@ -991,22 +1052,73 @@ func _update_actor_panel_evasion() -> void:
 		var body_rect: Rect2 = actor.call("get_visual_body_rect_global")
 		if bool(actor.get("layout_transition_active")):
 			continue
-		if _rect_fits_inside(body_rect, active_water_rect):
-			if bool(actor.call("is_panel_evasion_active")) and not pet_info_open:
+		var outside_water: bool = not _rect_fits_inside(body_rect, active_water_rect)
+		var obscured_by_panel: bool = panel_is_opaque and body_rect.intersects(panel_rect)
+		if not outside_water and not obscured_by_panel:
+			if bool(actor.call("is_panel_evasion_active")):
 				actor.call("clear_panel_evasion")
 			continue
-		var half_size: Vector2 = body_rect.size * 0.5
-		var target_center: Vector2 = Vector2(
-			clampf(body_rect.get_center().x, active_water_rect.position.x + half_size.x, active_water_rect.end.x - half_size.x),
-			clampf(body_rect.get_center().y, active_water_rect.position.y + half_size.y, active_water_rect.end.y - half_size.y)
-		)
-		var target_position: Vector2 = actor.global_position + target_center - body_rect.get_center()
+		var target_position: Vector2 = _get_actor_safe_water_target(actor, body_rect, panel_rect if obscured_by_panel else Rect2())
 		actor.call("set_panel_evasion_target", target_position)
 
 
 func _rect_fits_inside(inner_rect: Rect2, outer_rect: Rect2) -> bool:
-	return inner_rect.position.x >= outer_rect.position.x and inner_rect.position.y >= outer_rect.position.y \
-		and inner_rect.end.x <= outer_rect.end.x and inner_rect.end.y <= outer_rect.end.y
+	const GEOMETRY_EPSILON: float = 0.01
+	return inner_rect.position.x >= outer_rect.position.x - GEOMETRY_EPSILON and inner_rect.position.y >= outer_rect.position.y - GEOMETRY_EPSILON \
+		and inner_rect.end.x <= outer_rect.end.x + GEOMETRY_EPSILON and inner_rect.end.y <= outer_rect.end.y + GEOMETRY_EPSILON
+
+
+func _is_info_panel_opaque() -> bool:
+	if not pet_info_open or not info_expanded_panel.is_visible_in_tree() or info_expanded_panel.modulate.a < 0.95:
+		return false
+	var panel_style: StyleBox = info_expanded_panel.get_theme_stylebox("panel")
+	if panel_style == null:
+		return false
+	if panel_style is StyleBoxFlat:
+		return (panel_style as StyleBoxFlat).bg_color.a >= 0.95
+	return true
+
+
+func _get_actor_safe_water_target(actor: Node2D, body_rect: Rect2, obstacle_rect: Rect2) -> Vector2:
+	var half_size: Vector2 = actor.call("_get_conservative_half_extents")
+	var minimum: Vector2 = active_water_rect.position + half_size
+	var maximum: Vector2 = active_water_rect.end - half_size
+	if maximum.x < minimum.x:
+		minimum.x = active_water_rect.get_center().x
+		maximum.x = minimum.x
+	if maximum.y < minimum.y:
+		minimum.y = active_water_rect.get_center().y
+		maximum.y = minimum.y
+	var center: Vector2 = body_rect.get_center()
+	var clamped_center: Vector2 = Vector2(
+		clampf(center.x, minimum.x, maximum.x),
+		clampf(center.y, minimum.y, maximum.y)
+	)
+	if obstacle_rect.size == Vector2.ZERO:
+		return actor.global_position + clamped_center - center
+	var obstacle_margin: Vector2 = half_size + Vector2.ONE
+	var candidates: Array[Vector2] = [
+		Vector2(obstacle_rect.position.x - obstacle_margin.x, clamped_center.y),
+		Vector2(obstacle_rect.end.x + obstacle_margin.x, clamped_center.y),
+		Vector2(clamped_center.x, obstacle_rect.position.y - obstacle_margin.y),
+		Vector2(clamped_center.x, obstacle_rect.end.y + obstacle_margin.y),
+		active_water_rect.get_center(),
+	]
+	var best_target: Vector2 = clamped_center
+	var best_distance: float = INF
+	for candidate in candidates:
+		var safe_candidate: Vector2 = Vector2(
+			clampf(candidate.x, minimum.x, maximum.x),
+			clampf(candidate.y, minimum.y, maximum.y)
+		)
+		var candidate_body: Rect2 = Rect2(safe_candidate - half_size, half_size * 2.0)
+		if not _rect_fits_inside(candidate_body, active_water_rect) or candidate_body.intersects(obstacle_rect):
+			continue
+		var distance: float = center.distance_to(safe_candidate)
+		if distance < best_distance:
+			best_target = safe_candidate
+			best_distance = distance
+	return actor.global_position + best_target - center
 
 
 func _apply_soft_actor_avoidance(delta: float) -> void:
@@ -1102,6 +1214,8 @@ func _next_food_spawn_position() -> Vector2:
 			active_water_rect.position.y + active_water_rect.size.y * y_ratio
 		)
 		candidate = _clamp_food_interaction_point(candidate)
+		if not _is_visible_water_point(candidate):
+			continue
 		var nearest_clearance: float = INF
 		var overlaps_actor: bool = false
 		for pet_id in actors_by_id.keys():
@@ -1358,8 +1472,9 @@ func _on_actor_food_eaten(token_id: String, pet_id: String) -> void:
 			_add_coin_bubble(meal_coin)
 		var new_hunger: int = int(GameState.get_pet(pet_id).get("hunger", old_hunger))
 		var satiation_gained: int = maxi(0, new_hunger - old_hunger)
+		_suppress_hunger_bubble_until_decrease(pet_id, new_hunger)
 		RuntimeLogger.log_info("food eaten %s by %s" % [token_id, pet_id])
-		RuntimeLogger.log_state("hunger %d -> %d" % [old_hunger, new_hunger])
+		RuntimeLogger.log_state("%s hunger %d -> %d" % [pet_id, old_hunger, new_hunger])
 		_show_message("%s 吃了飼料，飽足度 +%d。" % [str(GameState.get_pet(pet_id).get("nickname", "水母喵")), satiation_gained])
 	else:
 		actor.call("clear_food_target", token_id)
@@ -1490,7 +1605,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		input_kind = 1
 	else:
 		return
-	if not _get_safe_viewport_rect(get_viewport_rect().size).has_point(screen_position) or not active_water_rect.has_point(screen_position):
+	if not _get_safe_viewport_rect(get_viewport_rect().size).has_point(screen_position) or not _is_visible_water_point(screen_position):
 		return
 	var now: int = Time.get_ticks_msec()
 	if world_input_pair_pending and input_kind != last_world_input_kind and now - last_world_input_at < WORLD_INPUT_PAIR_DEBOUNCE_MSEC and screen_position.distance_to(last_world_input_position) < 2.0:
@@ -1516,6 +1631,17 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	_drop_basic_food(screen_position)
 	_record_world_input(screen_position, input_kind)
+
+
+func _is_visible_water_point(point: Vector2) -> bool:
+	if not active_water_rect.has_point(point):
+		return false
+	if _is_info_panel_opaque() and info_expanded_panel.get_global_rect().has_point(point):
+		return false
+	for control in [bottom_hud, pet_roster_backdrop, inventory_backdrop, message_label]:
+		if control.is_visible_in_tree() and control.get_global_rect().has_point(point):
+			return false
+	return true
 
 
 func _record_world_input(screen_position: Vector2, input_kind: int) -> void:

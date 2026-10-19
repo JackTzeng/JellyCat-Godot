@@ -6,7 +6,6 @@ extends PanelContainer
 func _ready() -> void:
 	GameState.state_changed.connect(refresh)
 	%BuyFoodButton.pressed.connect(_on_buy_food_pressed)
-	%BuyCookieButton.pressed.connect(_on_buy_cookie_pressed)
 	%BuyMedicineButton.pressed.connect(_on_buy_medicine_pressed)
 	%CloseShopButton.pressed.connect(_on_close_pressed)
 	refresh()
@@ -17,16 +16,11 @@ func refresh() -> void:
 	%FoodInfoLabel.text = _item_line("food_basic")
 	%BuyFoodButton.disabled = true
 	%BuyFoodButton.text = "無限供應"
-	%CookieInfoLabel.text = _item_line("cookie_basic")
 	%MedicineInfoLabel.text = _item_line("medicine_basic")
 
 
 func _on_buy_food_pressed() -> void:
 	_buy("food_basic")
-
-
-func _on_buy_cookie_pressed() -> void:
-	_buy("cookie_basic")
 
 
 func _on_buy_medicine_pressed() -> void:
@@ -57,8 +51,6 @@ func _item_line(item_id: String) -> String:
 
 func _localized_item_name(item_id: String) -> String:
 	match item_id:
-		"cookie_basic":
-			return "餅乾"
 		"medicine_basic":
 			return "藥水"
 		"food_basic":

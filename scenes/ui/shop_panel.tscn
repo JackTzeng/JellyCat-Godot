@@ -44,20 +44,6 @@ unique_name_in_owner = true
 layout_mode = 2
 text = "購買"
 
-[node name="CookieRow" type="HBoxContainer" parent="Main"]
-layout_mode = 2
-
-[node name="CookieInfoLabel" type="Label" parent="Main/CookieRow"]
-unique_name_in_owner = true
-layout_mode = 2
-size_flags_horizontal = 3
-text = "餅乾"
-
-[node name="BuyCookieButton" type="Button" parent="Main/CookieRow"]
-unique_name_in_owner = true
-layout_mode = 2
-text = "購買"
-
 [node name="MedicineRow" type="HBoxContainer" parent="Main"]
 layout_mode = 2
 

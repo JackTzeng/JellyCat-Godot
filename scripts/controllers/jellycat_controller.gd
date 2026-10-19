@@ -77,40 +77,45 @@ func _process(delta: float) -> void:
 			panel_evasion_target,
 			float(GameApp.get_balance_value("actor_swim_speed", 32.0)) * delta
 		)
-	elif layout_transition_active:
+		if position.distance_to(panel_evasion_target) <= 1.0:
+			position = panel_evasion_target
+			panel_evasion_active = false
+	if layout_transition_active:
 		_advance_layout_transition(delta)
 	else:
 		match behavior_state:
 			"idle_roam":
 				if offset.length() <= 10.0:
 					idle_time -= delta
-					if idle_time <= 0.0:
+					if idle_time <= 0.0 and not panel_evasion_active:
 						_choose_roam_target()
-				else:
+				elif not panel_evasion_active:
 					_move_toward(roam_target, float(GameApp.get_balance_value("actor_swim_speed", 32.0)), delta)
 			"approach_food":
-				_move_toward(roam_target, float(GameApp.get_balance_value("actor_food_chase_speed", 68.0)), delta)
+				if not panel_evasion_active:
+					_move_toward(roam_target, float(GameApp.get_balance_value("actor_food_chase_speed", 68.0)), delta)
 			"approach_full_food":
-				_move_toward(roam_target, float(GameApp.get_balance_value("actor_food_chase_speed", 68.0)), delta)
-				if position.distance_to(roam_target) <= 10.0:
+				if not panel_evasion_active:
+					_move_toward(roam_target, float(GameApp.get_balance_value("actor_food_chase_speed", 68.0)), delta)
+				if not panel_evasion_active and position.distance_to(roam_target) <= 10.0:
 					_begin_full_food_refusal()
 			"eat":
 				eat_elapsed = minf(EAT_ANIMATION_SECONDS, eat_elapsed + delta)
 			"post_meal":
 				post_meal_timer -= delta
 				if post_meal_timer <= 0.0:
-					behavior_state = "idle_roam"
+					_set_behavior_state("idle_roam")
 					_choose_roam_target()
 			"touch_reaction":
 				touch_reaction_timer -= delta
 				if touch_reaction_timer <= 0.0:
-					behavior_state = "idle_roam"
+					_set_behavior_state("idle_roam")
 					_choose_roam_target()
 			"full_food_refusal":
 				full_food_refusal_timer -= delta
 				if full_food_refusal_timer <= 0.0:
 					full_food_drop_id = ""
-					behavior_state = "idle_roam"
+					_set_behavior_state("idle_roam")
 					_choose_roam_target()
 	pulse_scale = 1.0
 	if behavior_state == "eat":
@@ -218,7 +223,7 @@ func set_food_target(token_id: String, target_position: Vector2) -> bool:
 		layout_transition_target_roam_target = _clamp_to_water(target_position)
 	else:
 		roam_target = _clamp_to_water(target_position)
-	behavior_state = "approach_food"
+	_set_behavior_state("approach_food")
 	return true
 
 
@@ -233,14 +238,14 @@ func clear_food_target(token_id: String) -> void:
 	eat_elapsed = 0.0
 	pulse_scale = 1.0
 	_apply_sprite_pose()
-	behavior_state = "idle_roam"
+	_set_behavior_state("idle_roam")
 	_choose_roam_target()
 
 
 func begin_eating(token_id: String) -> void:
 	if food_drop_id != token_id or behavior_state != "approach_food":
 		return
-	behavior_state = "eat"
+	_set_behavior_state("eat")
 	eat_elapsed = 0.0
 	_play_sheet_effect("res://assets/effects/eat_sheet_3x32.png", 3, 12.0)
 	eat_timer = Timer.new()
@@ -274,7 +279,7 @@ func complete_meal(token_id: String) -> void:
 	pulse_scale = 1.0
 	_apply_sprite_pose()
 	food_drop_id = ""
-	behavior_state = "post_meal"
+	_set_behavior_state("post_meal")
 	post_meal_timer = float(GameApp.get_balance_value("actor_food_post_meal_seconds", 2.0))
 	_choose_roam_target()
 
@@ -321,7 +326,7 @@ func set_full_food_target(token_id: String, target_position: Vector2) -> bool:
 		return false
 	full_food_drop_id = token_id
 	roam_target = _clamp_to_water(target_position)
-	behavior_state = "approach_full_food"
+	_set_behavior_state("approach_full_food")
 	return true
 
 
@@ -330,16 +335,28 @@ func clear_full_food_target(token_id: String) -> void:
 		return
 	full_food_drop_id = ""
 	if behavior_state == "approach_full_food":
-		behavior_state = "idle_roam"
+		_set_behavior_state("idle_roam")
 		_choose_roam_target()
 
 
 func _begin_full_food_refusal() -> void:
 	if full_food_drop_id.is_empty() or behavior_state != "approach_full_food":
 		return
-	behavior_state = "full_food_refusal"
+	_set_behavior_state("full_food_refusal")
 	full_food_refusal_timer = FULL_FOOD_REFUSAL_SECONDS
 	food_refused.emit(full_food_drop_id, pet_id)
+
+
+func _set_behavior_state(next_state: String) -> void:
+	if behavior_state == next_state:
+		return
+	var previous_state: String = behavior_state
+	behavior_state = next_state
+	RuntimeLogger.log_state_throttled(
+		"actor_state_%s" % pet_id,
+		"%s state %s -> %s" % [pet_id, previous_state, next_state],
+		0.25
+	)
 
 
 func _play_sheet_effect(texture_path: String, frame_count: int, fps: float) -> void:
@@ -443,13 +460,27 @@ func _update_base_scale(clamp_actor_to_bounds: bool = true) -> void:
 		base_scale = STAGE_ONE_BODY_RATIO
 	else:
 		var maximum_stage: int = _get_max_stage(current_species_id)
-		var progress: float = 0.0
-		if maximum_stage > 1:
-			progress = float(current_stage - 1) / float(maximum_stage - 1)
-		var target_height: float = water_bounds_local.size.y * lerpf(STAGE_ONE_BODY_RATIO, MAX_STAGE_BODY_RATIO, progress)
-		var max_width: float = water_bounds_local.size.x * 0.28
-		base_scale = minf(target_height / visible_texture_rect.size.y, max_width / visible_texture_rect.size.x)
-		base_scale = maxf(base_scale, 0.001)
+		var stage_one_texture: Texture2D = _load_stage_texture(current_species_id, 1)
+		var maximum_stage_texture: Texture2D = _load_stage_texture(current_species_id, maximum_stage)
+		var stage_one_rect: Rect2 = _get_visible_texture_rect(stage_one_texture) if stage_one_texture != null else visible_texture_rect
+		var maximum_stage_rect: Rect2 = _get_visible_texture_rect(maximum_stage_texture) if maximum_stage_texture != null else visible_texture_rect
+		var target_scale: float = minf(
+			water_bounds_local.size.y * STAGE_ONE_BODY_RATIO / maxf(stage_one_rect.size.y, 1.0),
+			water_bounds_local.size.x * 0.28 / maxf(stage_one_rect.size.x, 1.0)
+		)
+		var integer_scale: int = maxi(1, int(round(target_scale)))
+		while integer_scale > 1:
+			var maximum_body_size: Vector2 = maximum_stage_rect.size * float(integer_scale) * MAX_EAT_SCALE
+			var cosine: float = cos(MAX_SWIM_ROTATION)
+			var sine: float = sin(MAX_SWIM_ROTATION)
+			var maximum_half_extents: Vector2 = Vector2(
+				maximum_body_size.x * 0.5 * cosine + maximum_body_size.y * 0.5 * sine + 1.0,
+				maximum_body_size.y * 0.5 * cosine + maximum_body_size.x * 0.5 * sine + BOB_AMPLITUDE
+			)
+			if maximum_half_extents.x * 2.0 <= water_bounds_local.size.x and maximum_half_extents.y * 2.0 <= water_bounds_local.size.y:
+				break
+			integer_scale -= 1
+		base_scale = float(integer_scale)
 	_apply_sprite_pose()
 	if clamp_actor_to_bounds:
 		position = _clamp_to_water(position)
