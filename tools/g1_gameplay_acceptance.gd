@@ -668,75 +668,126 @@ func _run() -> void:
 	var jack_nameplates: Control = aquarium.get_node("%PetRosterBackdrop") as Control
 	var jack_status: Control = aquarium.get_node("%InfoExpandedPanel") as Control
 	var jack_panels_do_not_overlap: bool = not Rect2(jack_nameplates.position, jack_nameplates.size).intersects(jack_status.get_global_rect())
+	var viewport_1280_720: Vector2 = Vector2(1280.0, 720.0)
+	var viewport_1600_720: Vector2 = Vector2(1600.0, 720.0)
 	var info_matrix_cases: Array[Dictionary] = [
-		{"name": "16:9 160dpi", "viewport": viewport_16_9, "safe": safe_16_9, "touch": 56.0},
-		{"name": "16:9 320dpi", "viewport": viewport_16_9, "safe": safe_16_9, "touch": 112.0},
+		{"name": "1280x720 160dpi", "viewport": viewport_1280_720, "safe": Rect2(Vector2.ZERO, viewport_1280_720), "touch": 56.0},
+		{"name": "1280x720 320dpi", "viewport": viewport_1280_720, "safe": Rect2(Vector2.ZERO, viewport_1280_720), "touch": 112.0},
 		{"name": "1280x591 160dpi", "viewport": jack_viewport, "safe": jack_safe, "touch": 56.0},
 		{"name": "1280x591 320dpi", "viewport": jack_viewport, "safe": jack_safe, "touch": 112.0},
-		{"name": "20:9 160dpi", "viewport": Vector2(2400.0, 1080.0), "safe": safe_20_9, "touch": 56.0},
-		{"name": "20:9 320dpi", "viewport": Vector2(2400.0, 1080.0), "safe": safe_20_9, "touch": 112.0},
+		{"name": "1600x720 160dpi", "viewport": viewport_1600_720, "safe": Rect2(Vector2.ZERO, viewport_1600_720), "touch": 56.0},
+		{"name": "1600x720 320dpi", "viewport": viewport_1600_720, "safe": Rect2(Vector2.ZERO, viewport_1600_720), "touch": 112.0},
 	]
 	var info_panel_matrix_valid: bool = true
 	var info_panel_matrix_checks: int = 0
+	var detail_page_matrix_valid: bool = true
+	var detail_page_matrix_checks: int = 0
+	var detail_button: Button = aquarium.get_node("%DetailButton") as Button
+	var detail_back_button: Button = aquarium.get_node("%DetailBackButton") as Button
+	var matrix_selected_id: String = GameState.get_selected_pet_id()
 	aquarium.call("_set_pet_info_open", true)
 	for info_case in info_matrix_cases:
 		var info_viewport: Vector2 = info_case["viewport"]
 		var info_safe: Rect2 = info_case["safe"]
 		var info_touch_target: float = float(info_case["touch"])
-		aquarium.call("_layout_ui", info_viewport, info_safe, info_touch_target)
-		await get_tree().process_frame
-		var info_panel_rect: Rect2 = jack_status.get_global_rect()
-		var info_content_rect: Rect2 = status_scroll.get_global_rect()
-		var info_panel_inside_safe: bool = _control_inside_safe(jack_status, info_safe)
-		var info_panel_geometry_valid: bool = info_panel_inside_safe and info_panel_rect.size.y <= info_safe.size.y * 0.45 + 0.1
-		var info_panel_width_ratio: float = info_panel_rect.size.x / maxf(info_safe.size.x, 1.0)
-		info_panel_geometry_valid = info_panel_geometry_valid and info_panel_width_ratio >= 0.4 and info_panel_width_ratio <= 0.6
-		info_panel_geometry_valid = info_panel_geometry_valid and absf(info_panel_rect.end.y - bottom_hud.position.y) <= 0.1
-		var no_status_scroll_required: bool = status_scroll.horizontal_scroll_mode == 0 and status_scroll.vertical_scroll_mode == 0
-		no_status_scroll_required = no_status_scroll_required and status_scroll.get_h_scroll_bar().max_value <= status_scroll.get_h_scroll_bar().page + 0.1
-		no_status_scroll_required = no_status_scroll_required and status_scroll.get_v_scroll_bar().max_value <= status_scroll.get_v_scroll_bar().page + 0.1
-		no_status_scroll_required = no_status_scroll_required and top_panel.get_combined_minimum_size().x <= status_scroll.size.x + 1.0
-		no_status_scroll_required = no_status_scroll_required and top_panel.get_combined_minimum_size().y <= status_scroll.size.y + 1.0
-		var info_content_controls: Array[Control] = [
-			aquarium.get_node("%PetNameLabel") as Control,
-			aquarium.get_node("%GenderPlaceholderLabel") as Control,
-			aquarium.get_node("%StageLabel") as Control,
-			aquarium.get_node("%RenameButton") as Control,
-			aquarium.get_node("%HungerLabel") as Control,
-			aquarium.get_node("%HungerBar") as Control,
-			aquarium.get_node("%MoodLabel") as Control,
-			aquarium.get_node("%MoodBar") as Control,
-			aquarium.get_node("%CleanlinessLabel") as Control,
-			aquarium.get_node("%CleanBar") as Control,
-			aquarium.get_node("%HealthLabel") as Control,
-			aquarium.get_node("%ExpLabel") as Control,
-			aquarium.get_node("%GrowthExpBar") as Control,
-			aquarium.get_node("%EvolutionLabel") as Control,
-			aquarium.get_node("%TouchExpLabel") as Control,
-		]
-		var all_info_fields_visible_and_unclipped: bool = (aquarium.get_node("%InfoGrid") as GridContainer).columns == 2
-		for info_control in info_content_controls:
-			var info_control_rect: Rect2 = info_control.get_global_rect()
-			var inside_content: bool = info_control_rect.position.x >= info_content_rect.position.x - 0.1 and info_control_rect.position.y >= info_content_rect.position.y - 0.1
-			inside_content = inside_content and info_control_rect.end.x <= info_content_rect.end.x + 0.1 and info_control_rect.end.y <= info_content_rect.end.y + 0.1
-			all_info_fields_visible_and_unclipped = all_info_fields_visible_and_unclipped and info_control.is_visible_in_tree() and inside_content
-			if info_control is Label:
-				var info_label: Label = info_control as Label
-				all_info_fields_visible_and_unclipped = all_info_fields_visible_and_unclipped and not info_label.clip_text and info_label.autowrap_mode == TextServer.AUTOWRAP_OFF
-		var rename_target_ok: bool = (aquarium.get_node("%RenameButton") as Button).custom_minimum_size.x >= maxf(96.0, info_touch_target)
-		rename_target_ok = rename_target_ok and (aquarium.get_node("%RenameButton") as Button).custom_minimum_size.y >= info_touch_target
-		var bottom_summary_deduplicated: bool = pet_summary_label.text == str(GameState.get_pet(GameState.get_selected_pet_id()).get("nickname", "水母喵")) and not pet_growth_bar.visible
-		var info_case_valid: bool = info_panel_geometry_valid and no_status_scroll_required and all_info_fields_visible_and_unclipped and rename_target_ok and bottom_summary_deduplicated
-		info_panel_matrix_valid = info_panel_matrix_valid and info_case_valid
-		info_panel_matrix_checks += 1
-		if not info_case_valid:
-			print("G1 info-panel matrix diagnostic: case=%s viewport=%s safe=%s panel=%s content=%s min=%s scrollbars=(%s,%s) fields=%s rename=%s summary=%s" % [str(info_case["name"]), str(info_viewport), str(info_safe), str(info_panel_rect), str(info_content_rect), str(top_panel.get_combined_minimum_size()), str(status_scroll.get_h_scroll_bar().max_value), str(status_scroll.get_v_scroll_bar().max_value), str(all_info_fields_visible_and_unclipped), str(rename_target_ok), str(bottom_summary_deduplicated)])
-	_expect(info_panel_matrix_valid and info_panel_matrix_checks == 6, "Info panel shows every two-column field without scrolling or clipping in three aspect ratios × 160/320 dpi, within 45% height and half-width")
+		for detail_phase in [false, true]:
+			aquarium.call("_set_pet_detail_open", detail_phase)
+			aquarium.call("_layout_ui", info_viewport, info_safe, info_touch_target)
+			await get_tree().process_frame
+			await get_tree().process_frame
+			var info_panel_rect: Rect2 = jack_status.get_global_rect()
+			var info_content_rect: Rect2 = status_scroll.get_global_rect()
+			var info_panel_inside_safe: bool = _control_inside_safe(jack_status, info_safe)
+			var info_panel_geometry_valid: bool = info_panel_inside_safe and info_panel_rect.size.y <= info_safe.size.y * 0.3 + 0.1
+			info_panel_geometry_valid = info_panel_geometry_valid and info_panel_rect.size.x <= info_safe.size.x * 0.45 + 0.1
+			info_panel_geometry_valid = info_panel_geometry_valid and absf(info_panel_rect.end.y - bottom_hud.position.y) <= 0.1 and info_panel_rect.encloses(info_content_rect.grow(-0.1))
+			var no_status_scroll_required: bool = status_scroll.horizontal_scroll_mode == 0 and status_scroll.vertical_scroll_mode == 0
+			no_status_scroll_required = no_status_scroll_required and status_scroll.get_h_scroll_bar().max_value <= status_scroll.get_h_scroll_bar().page + 0.1
+			no_status_scroll_required = no_status_scroll_required and status_scroll.get_v_scroll_bar().max_value <= status_scroll.get_v_scroll_bar().page + 0.1
+			no_status_scroll_required = no_status_scroll_required and top_panel.get_combined_minimum_size().x <= status_scroll.size.x + 1.0
+			no_status_scroll_required = no_status_scroll_required and top_panel.get_combined_minimum_size().y <= status_scroll.size.y + 1.0
+			var compact_controls: Array[Control] = [
+				aquarium.get_node("%PetNameLabel") as Control,
+				aquarium.get_node("%StageLabel") as Control,
+				aquarium.get_node("%HealthLabel") as Control,
+				aquarium.get_node("%HungerLabel") as Control,
+				aquarium.get_node("%HungerBar") as Control,
+				aquarium.get_node("%MoodLabel") as Control,
+				aquarium.get_node("%MoodBar") as Control,
+				aquarium.get_node("%ExpLabel") as Control,
+				aquarium.get_node("%GrowthExpBar") as Control,
+				aquarium.get_node("%EvolutionLabel") as Control,
+			]
+			var secondary_controls: Array[Control] = [
+				aquarium.get_node("%PetNameLabel") as Control,
+				aquarium.get_node("%GenderPlaceholderLabel") as Control,
+				aquarium.get_node("%CleanlinessLabel") as Control,
+				aquarium.get_node("%CleanBar") as Control,
+				aquarium.get_node("%TouchExpLabel") as Control,
+			]
+			var shown_controls: Array[Control] = compact_controls
+			var hidden_controls: Array[Control] = secondary_controls
+			if detail_phase:
+				shown_controls = secondary_controls
+				hidden_controls = compact_controls
+			var page_fields_ok: bool = true
+			for info_control in shown_controls:
+				var info_control_rect: Rect2 = info_control.get_global_rect()
+				var inside_content: bool = info_control_rect.position.x >= info_content_rect.position.x - 0.1 and info_control_rect.position.y >= info_content_rect.position.y - 0.1
+				inside_content = inside_content and info_control_rect.end.x <= info_content_rect.end.x + 0.1 and info_control_rect.end.y <= info_content_rect.end.y + 0.1
+				page_fields_ok = page_fields_ok and info_control.is_visible_in_tree() and inside_content
+				if info_control is Label:
+					var info_label: Label = info_control as Label
+					page_fields_ok = page_fields_ok and not info_label.clip_text and info_label.autowrap_mode == TextServer.AUTOWRAP_OFF
+			for hidden_control in hidden_controls:
+				if hidden_control == aquarium.get_node("%PetNameLabel"):
+					continue
+				page_fields_ok = page_fields_ok and not hidden_control.is_visible_in_tree()
+			var action_buttons: Array[Button] = []
+			if detail_phase:
+				action_buttons.append(aquarium.get_node("%RenameButton") as Button)
+				action_buttons.append(detail_back_button)
+			else:
+				action_buttons.append(detail_button)
+			var buttons_ok: bool = true
+			for action_button in action_buttons:
+				var action_rect: Rect2 = action_button.get_global_rect()
+				buttons_ok = buttons_ok and action_button.is_visible_in_tree() and action_rect.size.y >= info_touch_target - 0.1 and action_rect.size.x >= maxf(96.0, info_touch_target) - 0.1
+				buttons_ok = buttons_ok and info_panel_rect.encloses(action_rect.grow(-0.1)) and not action_rect.intersects(info_content_rect)
+			buttons_ok = buttons_ok and (detail_phase or not detail_back_button.is_visible_in_tree()) and (not detail_phase or not detail_button.is_visible_in_tree())
+			var bottom_summary_deduplicated: bool = pet_summary_label.text == str(GameState.get_pet(GameState.get_selected_pet_id()).get("nickname", "水母喵")) and not pet_growth_bar.visible
+			var info_case_valid: bool = info_panel_geometry_valid and no_status_scroll_required and page_fields_ok and buttons_ok and bottom_summary_deduplicated and GameState.get_selected_pet_id() == matrix_selected_id
+			if detail_phase:
+				detail_page_matrix_valid = detail_page_matrix_valid and info_case_valid
+				detail_page_matrix_checks += 1
+			else:
+				info_panel_matrix_valid = info_panel_matrix_valid and info_case_valid
+				info_panel_matrix_checks += 1
+			if not info_case_valid:
+				var rect_dump: PackedStringArray = PackedStringArray()
+				for dump_control in shown_controls:
+					rect_dump.append("%s=%s" % [dump_control.name, str(dump_control.get_global_rect())])
+				for dump_child in top_panel.get_children():
+					rect_dump.append("child:%s vis=%s min=%s" % [dump_child.name, str((dump_child as Control).visible), str((dump_child as Control).get_combined_minimum_size())])
+				print("G1 info-panel rect dump: ", " | ".join(rect_dump))
+				print("G1 info-panel matrix diagnostic: case=%s detail=%s viewport=%s safe=%s panel=%s content=%s min=%s scrollbars=(%s,%s) geometry=%s scroll_ok=%s fields=%s buttons=%s summary=%s" % [str(info_case["name"]), str(detail_phase), str(info_viewport), str(info_safe), str(info_panel_rect), str(info_content_rect), str(top_panel.get_combined_minimum_size()), str(status_scroll.get_h_scroll_bar().max_value), str(status_scroll.get_v_scroll_bar().max_value), str(info_panel_geometry_valid), str(no_status_scroll_required), str(page_fields_ok), str(buttons_ok), str(bottom_summary_deduplicated)])
+	_expect(info_panel_matrix_valid and info_panel_matrix_checks == 6, "R-UI27 compact info shows name, stage, health, hunger, mood, EXP and next-stage gap without scrolling in 1280x720, 1280x591 and 1600x720 at 160/320dpi, within 30% safe height and 45% safe width")
+	_expect(detail_page_matrix_valid and detail_page_matrix_checks == 6, "R-UI27 detail page shows rename, gender, cleanliness and touch-EXP countdown unclipped with >=48dp actions in the same six cases and keeps the selected pet")
+	aquarium.call("_set_pet_detail_open", false)
+	var detail_back_keeps_pet: bool = bool(aquarium.get("pet_info_open")) and not bool(aquarium.get("pet_detail_open")) and GameState.get_selected_pet_id() == matrix_selected_id
+	aquarium.call("_set_pet_detail_open", true)
+	var android_back: InputEventKey = InputEventKey.new()
+	android_back.pressed = true
+	android_back.keycode = KEY_ESCAPE
+	aquarium.call("_unhandled_key_input", android_back)
+	detail_back_keeps_pet = detail_back_keeps_pet and bool(aquarium.get("pet_info_open")) and not bool(aquarium.get("pet_detail_open")) and GameState.get_selected_pet_id() == matrix_selected_id
+	_expect(detail_back_keeps_pet, "Detail page returns to compact info via its button and Android Back while preserving the selected pet and data")
+	aquarium.call("_layout_ui", jack_viewport, jack_safe, 56.0)
 	_expect(jack_panels_do_not_overlap, "1280x591 layout separates top nameplates from the upward-expanding detail panel")
 	aquarium.call("_set_pet_info_open", false)
 	aquarium.call("_layout_ui", jack_viewport, jack_safe)
 	var more_button: Button = aquarium.get_node("%MoreButton") as Button
-	var more_items: HBoxContainer = aquarium.get_node("%MoreItems") as HBoxContainer
+	var more_items: GridContainer = aquarium.get_node("%MoreItems") as GridContainer
 	var more_items_scroll: ScrollContainer = aquarium.get_node("%ActionScroll") as ScrollContainer
 	var more_actions_bar: HBoxContainer = aquarium.get_node("%ActionBar") as HBoxContainer
 	var primary_actions: HBoxContainer = aquarium.get_node("%PrimaryActions") as HBoxContainer
@@ -751,7 +802,7 @@ func _run() -> void:
 	var more_menu_complete: bool = bool(aquarium.get("more_actions_open")) and more_items.visible and not primary_actions.visible
 	more_menu_complete = more_menu_complete and more_items.get_child_count() == 7 and more_items.get_parent() == more_actions_bar
 	more_menu_complete = more_menu_complete and more_items_scroll.get_child(0) == more_actions_bar and more_actions_bar.get_parent() == more_items_scroll
-	var more_menu_texts: Array[String] = ["清潔", "藥水", "進化", "商店", "日誌", "測試加速 ×1", "返回"]
+	var more_menu_texts: Array[String] = ["測試加速 ×1", "返回", "清潔", "藥水", "進化", "商店", "日誌"]
 	for menu_node in more_items.get_children():
 		if menu_node is Button:
 			var menu_button: Button = menu_node as Button
@@ -783,20 +834,37 @@ func _run() -> void:
 		layout_geometry_ok = layout_geometry_ok and _control_inside_safe(aquarium.get_node("%BottomHUD") as Control, layout_safe)
 		var scroll_rect: Rect2 = more_items_scroll.get_global_rect()
 		layout_geometry_ok = layout_geometry_ok and more_items.get_global_rect().position.y >= scroll_rect.position.y and more_items.get_global_rect().end.y <= scroll_rect.end.y
+		# R-UI27 B1/B2 (replaces FIX-26 "reach every control through horizontal scrolling"): wrapped grid, nothing needs scrolling.
+		var visible_menu_rects: Array[Rect2] = []
+		var first_row_y: float = INF
+		var time_scale_row_y: float = -1.0
+		var back_row_y: float = -2.0
+		layout_geometry_ok = layout_geometry_ok and more_items_scroll.scroll_horizontal == 0 and more_items_scroll.get_h_scroll_bar().max_value <= more_items_scroll.get_h_scroll_bar().page + 0.1
 		for menu_node in more_items.get_children():
-			if menu_node is Button:
+			if menu_node is Button and (menu_node as Button).is_visible_in_tree():
 				var menu_button: Button = menu_node as Button
 				layout_geometry_ok = layout_geometry_ok and menu_button.custom_minimum_size.x >= touch_target and menu_button.custom_minimum_size.y >= touch_target
-				var max_scroll: int = maxi(0, int(ceil(more_items.size.x - more_items_scroll.size.x)))
-				more_items_scroll.scroll_horizontal = clampi(int(menu_button.position.x), 0, max_scroll)
-				await get_tree().process_frame
 				var button_rect: Rect2 = menu_button.get_global_rect()
 				var fully_visible: bool = button_rect.position.x >= scroll_rect.position.x - 1.0 and button_rect.end.x <= scroll_rect.end.x + 1.0
-				fully_visible = fully_visible and button_rect.position.y >= scroll_rect.position.y and button_rect.end.y <= scroll_rect.end.y
+				fully_visible = fully_visible and button_rect.position.y >= scroll_rect.position.y - 1.0 and button_rect.end.y <= scroll_rect.end.y + 1.0
+				fully_visible = fully_visible and layout_safe.grow(0.5).encloses(button_rect)
+				fully_visible = fully_visible and not menu_button.clip_text and menu_button.get_minimum_size().x <= button_rect.size.x + 0.1 and button_rect.size.y >= touch_target - 0.1
+				if not fully_visible:
+					print("G1 More button diag: %s rect=%s scroll=%s safe=%s min=%s clip=%s" % [menu_button.name, str(button_rect), str(scroll_rect), str(layout_safe), str(menu_button.get_minimum_size()), str(menu_button.clip_text)])
 				layout_geometry_ok = layout_geometry_ok and fully_visible
+				for earlier_rect in visible_menu_rects:
+					layout_geometry_ok = layout_geometry_ok and not earlier_rect.grow(-0.5).intersects(button_rect.grow(-0.5))
+				visible_menu_rects.append(button_rect)
+				first_row_y = minf(first_row_y, button_rect.position.y)
+				if menu_button == aquarium.get_node("%TimeScaleButton"):
+					time_scale_row_y = button_rect.position.y
+				if menu_button == aquarium.get_node("%BackToPrimaryButton"):
+					back_row_y = button_rect.position.y
+		layout_geometry_ok = layout_geometry_ok and absf(time_scale_row_y - first_row_y) <= 0.5 and absf(back_row_y - first_row_y) <= 0.5
 		if not layout_geometry_ok:
+			print("G1 More flags: scroll_h=%s hbar=%s/%s first=%s ts=%s back=%s" % [str(more_items_scroll.scroll_horizontal), str(more_items_scroll.get_h_scroll_bar().max_value), str(more_items_scroll.get_h_scroll_bar().page), str(first_row_y), str(time_scale_row_y), str(back_row_y)])
 			print("G1 More matrix diagnostic case=%s scroll=%s menu=%s scroll_min=%s bar=%s bar_min=%s roster=%s targets=%s" % [str(layout_case["name"]), str(scroll_rect), str(more_items.get_global_rect()), str(more_items_scroll.get_combined_minimum_size()), str(more_actions_bar.size), str(more_actions_bar.get_combined_minimum_size()), str((aquarium.get_node("%PetRoster") as Control).get_global_rect()), str(more_items.get_children().map(func(node: Node) -> Rect2: return (node as Control).get_global_rect()))])
-		_expect(layout_geometry_ok, "More row %s exposes every full-size control through horizontal scrolling inside safe bounds" % str(layout_case["name"]))
+		_expect(layout_geometry_ok, "R-UI27 B1/B2: More grid %s shows every control, with test speed and Back in the first row, fully inside safe and clip bounds without scrolling or overlap" % str(layout_case["name"]))
 	_expect(more_menu_complete and aquarium.get_node_or_null("%CookieButton") == null, "More keeps its six functions, including test speed, and Back in one bottom row without the removed cookie button")
 	_expect(more_open_position_stable, "Opening More does not move or concentrate any pet")
 	var foremost_actor_z: int = actor_anchor.z_index
@@ -938,7 +1006,7 @@ func _run() -> void:
 		toggle_actor.set("roam_target", toggle_snapshot.get("roam_target", toggle_actor.get("roam_target")))
 	aquarium.call("_update_selection_markers")
 	aquarium.call("_apply_responsive_layout")
-	more_items = aquarium.get_node("%MoreItems") as HBoxContainer
+	more_items = aquarium.get_node("%MoreItems") as GridContainer
 	var time_scale_button: Button = aquarium.get_node("%TimeScaleButton") as Button
 	var time_scale_indicator: Label = aquarium.get_node("%TimeScaleIndicator") as Label
 	var time_scale_action_times: Dictionary = aquarium.get("last_action_time_by_name") as Dictionary
@@ -1003,19 +1071,32 @@ func _run() -> void:
 	if found_empty_visible_water_point:
 		aquarium.call("_unhandled_input", visible_water_tap)
 	var food_count_after_visible_tap: int = GameState.get_food_drops().size()
+	var blank_tap_closed_panel: bool = not bool(aquarium.get("pet_info_open")) and not open_info_panel.visible
+	aquarium.call("_set_pet_info_open", true)
+	open_info_panel_rect = open_info_panel.get_global_rect()
 	var panel_water_tap: InputEventScreenTouch = InputEventScreenTouch.new()
 	panel_water_tap.pressed = true
 	panel_water_tap.position = open_info_panel_rect.get_center()
+	var panel_blocked_point_visible: bool = bool(aquarium.call("_is_visible_water_point", open_info_panel_rect.get_center()))
 	aquarium.call("_unhandled_input", panel_water_tap)
 	var food_count_after_panel_tap: int = GameState.get_food_drops().size()
-	var visible_water_tap_valid: bool = found_empty_visible_water_point and food_count_after_visible_tap == food_count_before_visible_tap + 1
-	var panel_water_tap_blocked: bool = food_count_after_panel_tap == food_count_after_visible_tap and not bool(aquarium.call("_is_visible_water_point", open_info_panel_rect.get_center()))
+	var panel_tap_kept_open: bool = bool(aquarium.get("pet_info_open"))
+	aquarium.call("_set_pet_info_open", false)
+	var closed_blank_tap: InputEventScreenTouch = InputEventScreenTouch.new()
+	closed_blank_tap.pressed = true
+	closed_blank_tap.position = empty_visible_water_point
+	if found_empty_visible_water_point:
+		aquarium.call("_unhandled_input", closed_blank_tap)
+	var closed_blank_tap_dropped_one: bool = GameState.get_food_drops().size() == food_count_after_panel_tap + 1
+	# R-UI27 A3 (replaces the FIX-26 "blank tap with panel open drops food"): blank tap closes the panel without feeding.
+	var visible_water_tap_valid: bool = found_empty_visible_water_point and food_count_after_visible_tap == food_count_before_visible_tap and blank_tap_closed_panel and closed_blank_tap_dropped_one
+	var panel_water_tap_blocked: bool = food_count_after_panel_tap == food_count_after_visible_tap and panel_tap_kept_open and not panel_blocked_point_visible
 	if not visible_water_tap_valid or not panel_water_tap_blocked:
 		print("G1 visible-water tap diagnostic: found=%s point=%s active_water=%s panel=%s visible_point=%s pending=%s last_kind=%d last_at=%d counts=%d/%d/%d panel_is_visible=%s" % [str(found_empty_visible_water_point), str(empty_visible_water_point), str(visible_water), str(open_info_panel_rect), str(aquarium.call("_is_visible_water_point", empty_visible_water_point)), str(aquarium.get("world_input_pair_pending")), int(aquarium.get("last_world_input_kind")), int(aquarium.get("last_world_input_at")), food_count_before_visible_tap, food_count_after_visible_tap, food_count_after_panel_tap, str(open_info_panel.is_visible_in_tree())])
 	for tap_drop in GameState.get_food_drops():
 		GameState.resolve_food_drop(str(tap_drop.get("token_id", "")))
 	SaveManager.save_game()
-	_expect(visible_water_tap_valid and panel_water_tap_blocked, "With the information panel open, an empty visible-water tap drops one food and a panel tap drops none")
+	_expect(visible_water_tap_valid and panel_water_tap_blocked, "R-UI27 A3: with the information panel open an empty visible-water tap closes it without dropping food, a panel tap drops none and keeps it open, and the same blank tap on the closed panel drops one food")
 	aquarium.call("_set_pet_info_open", false)
 	await get_tree().process_frame
 	pet_growth_bar = aquarium.get_node("%PetGrowthBar") as ProgressBar
@@ -1181,7 +1262,65 @@ func _run() -> void:
 	GameState.set_selected_pet_id(second_roster_id)
 	var selected_roster_slot: Button = roster_slots[0]
 	selected_roster_slot.pressed.emit()
-	_expect(GameState.get_selected_pet_id() == selected_id and bool(aquarium.get("pet_info_open")), "Tapping a nameplate selects that pet and opens its information/actions")
+	_expect(GameState.get_selected_pet_id() == selected_id and not bool(aquarium.get("pet_info_open")), "R-UI27-1: tapping a nameplate selects that pet without opening information")
+	# R-UI27-1: direct pet tap = select + one touch, no automatic panel; only the explicit summary opens it.
+	var ui27_actor: Node2D = actors.get(selected_id) as Node2D
+	aquarium.call("_set_pet_info_open", false)
+	aquarium.set("touch_cooldown", 0.0)
+	var ui27_pet: Dictionary = GameState.get_pet(selected_id)
+	ui27_pet["mood"] = 50
+	ui27_pet["growth_exp"] = 0
+	var ui27_care: Dictionary = GameState.get_current_care_stats(selected_id)
+	ui27_care["last_touch_effect_at"] = 0.0
+	ui27_care["touch_growth_exp_hour"] = 0
+	ui27_care["touch_exp_hour_started_at"] = 0.0
+	GameState.set_pet_and_care_stats(selected_id, ui27_pet, ui27_care)
+	GameState.set_selected_pet_id(second_roster_id)
+	var ui27_exp_before: int = int(GameState.get_pet(selected_id).get("growth_exp", 0))
+	var ui27_mood_before: int = int(GameState.get_pet(selected_id).get("mood", 0))
+	var ui27_food_before: int = GameState.get_food_drops().size()
+	var ui27_tap: InputEventScreenTouch = InputEventScreenTouch.new()
+	ui27_tap.pressed = true
+	ui27_tap.position = (ui27_actor.call("get_visual_body_rect_global") as Rect2).get_center()
+	aquarium.call("_unhandled_input", ui27_tap)
+	var ui27_exp_after: int = int(GameState.get_pet(selected_id).get("growth_exp", 0))
+	var ui27_mood_after: int = int(GameState.get_pet(selected_id).get("mood", 0))
+	var ui27_message: String = str((aquarium.get_node("%MessageLabel") as Label).text)
+	_expect(GameState.get_selected_pet_id() == selected_id, "R-UI27-1 (1): tapping a pet in the water selects exactly that pet")
+	var ui27_duplicate: InputEventMouseButton = InputEventMouseButton.new()
+	ui27_duplicate.pressed = true
+	ui27_duplicate.button_index = MOUSE_BUTTON_LEFT
+	ui27_duplicate.position = ui27_tap.position
+	aquarium.call("_unhandled_input", ui27_duplicate)
+	aquarium.call("_unhandled_input", ui27_tap)
+	_expect(ui27_exp_after > ui27_exp_before and ui27_mood_after > ui27_mood_before and int(GameState.get_pet(selected_id).get("growth_exp", 0)) == ui27_exp_after and int(GameState.get_pet(selected_id).get("mood", 0)) == ui27_mood_after and ui27_message.begins_with("+") and GameState.get_food_drops().size() == ui27_food_before, "R-UI27-1 (2): the pet tap settles exactly one touch (duplicate/cooldown taps add nothing), shows visible feedback and drops no food")
+	_expect(not bool(aquarium.get("pet_info_open")) and not (aquarium.get_node("%InfoExpandedPanel") as Control).visible, "R-UI27-1 (3): the compact information panel stays closed after a direct pet tap")
+	var ui27_summary_actions: Dictionary = aquarium.get("last_action_time_by_name") as Dictionary
+	ui27_summary_actions["pet_info"] = -999999.0
+	aquarium.set("last_action_time_by_name", ui27_summary_actions)
+	var ui27_open_before_summary: bool = bool(aquarium.get("pet_info_open"))
+	(aquarium.get_node("%PetInfoButton") as Button).pressed.emit()
+	_expect(not ui27_open_before_summary and bool(aquarium.get("pet_info_open")) and (aquarium.get_node("%InfoExpandedPanel") as Control).visible and GameState.get_selected_pet_id() == selected_id, "R-UI27-1 (4): only the explicit bottom summary/info entry opens the compact panel")
+	var ui27_panel_rect: Rect2 = (aquarium.get_node("%InfoExpandedPanel") as Control).get_global_rect()
+	var ui27_water: Rect2 = aquarium.get("active_water_rect")
+	var ui27_blank: Vector2 = Vector2(-1.0, -1.0)
+	for ui27_fx in [0.9, 0.7, 0.5, 0.3, 0.1]:
+		for ui27_fy in [0.15, 0.4, 0.65, 0.85]:
+			var ui27_candidate: Vector2 = ui27_water.position + Vector2(ui27_water.size.x * ui27_fx, ui27_water.size.y * ui27_fy)
+			var ui27_clear: bool = not ui27_panel_rect.has_point(ui27_candidate)
+			for ui27_pet_id in GameState.get_active_pet_ids():
+				ui27_clear = ui27_clear and not bool((actors.get(ui27_pet_id) as Node2D).call("contains_screen_point", ui27_candidate, 56.0))
+			if ui27_clear and ui27_blank.x < 0.0:
+				ui27_blank = ui27_candidate
+	var ui27_blank_tap: InputEventScreenTouch = InputEventScreenTouch.new()
+	ui27_blank_tap.pressed = true
+	ui27_blank_tap.position = ui27_blank
+	var ui27_pos_before: Vector2 = ui27_actor.global_position
+	aquarium.call("_unhandled_input", ui27_blank_tap)
+	var ui27_old_point: Vector2 = ui27_panel_rect.get_center()
+	var ui27_no_blocker: bool = ui27_blank.x >= 0.0 and not bool(aquarium.get("pet_info_open")) and not (aquarium.get_node("%InfoExpandedPanel") as Control).is_visible_in_tree() and not bool(aquarium.call("_is_info_panel_opaque")) and GameState.get_food_drops().size() == ui27_food_before
+	ui27_no_blocker = ui27_no_blocker and (not ui27_water.has_point(ui27_old_point) or bool(aquarium.call("_is_visible_water_point", ui27_old_point))) and ui27_actor.global_position.distance_to(ui27_pos_before) <= 0.5
+	_expect(ui27_no_blocker, "R-UI27-1 (5): tapping blank water closes the panel without dropping food or moving the pet, and leaves no click-intercepting area where it was")
 	print("G1 acceptance: before roster/rename")
 	var nickname_edit: LineEdit = aquarium.get_node("%NicknameEdit") as LineEdit
 	var rename_button: Button = aquarium.get_node("%RenameButton") as Button
@@ -1268,11 +1407,13 @@ func _run() -> void:
 	second_detail_labels = second_detail_labels and str((aquarium.get_node("%PetNameLabel") as Label).text) == str(second_detail_pet.get("nickname", ""))
 	second_detail_labels = second_detail_labels and str((aquarium.get_node("%GenderPlaceholderLabel") as Label).text) == "性別：—"
 	second_detail_labels = second_detail_labels and str((aquarium.get_node("%StageLabel") as Label).text).begins_with("階段 1 · ")
-	second_detail_labels = second_detail_labels and str((aquarium.get_node("%MoodLabel") as Label).text) == "心情：70 / 100"
-	second_detail_labels = second_detail_labels and str((aquarium.get_node("%ExpLabel") as Label).text) == "成長經驗：0 / %d" % second_next_growth_exp
-	second_detail_labels = second_detail_labels and is_equal_approx((aquarium.get_node("%GrowthExpBar") as ProgressBar).value, 0.0)
-	second_detail_labels = second_detail_labels and str((aquarium.get_node("%TouchExpLabel") as Label).text) == "摸摸經驗：0/60｜可累積"
-	_expect(second_detail_labels, "Selecting the second pet immediately refreshes its name, mood, growth EXP, and touch-expiry state")
+	var second_after_pet: Dictionary = GameState.get_pet(second_id)
+	var second_after_exp: int = int(second_after_pet.get("growth_exp", -1))
+	second_detail_labels = second_detail_labels and int(second_after_pet.get("mood", -1)) >= 70 and str((aquarium.get_node("%MoodLabel") as Label).text) == "心情：%d / 100" % int(second_after_pet.get("mood", -1))
+	second_detail_labels = second_detail_labels and second_after_exp >= 0 and str((aquarium.get_node("%ExpLabel") as Label).text) == "成長經驗：%d / %d" % [second_after_exp, second_next_growth_exp]
+	second_detail_labels = second_detail_labels and is_equal_approx((aquarium.get_node("%GrowthExpBar") as ProgressBar).value, float(second_after_exp))
+	second_detail_labels = second_detail_labels and str((aquarium.get_node("%TouchExpLabel") as Label).text).begins_with("摸摸經驗：") and str((aquarium.get_node("%TouchExpLabel") as Label).text).contains("/60") and not bool(aquarium.get("pet_info_open"))
+	_expect(second_detail_labels, "R-UI27-1: selecting the second pet (one touch is performed, panel stays closed) immediately refreshes its name, stage, growth EXP and touch-expiry label")
 	GameState.set_selected_pet_id(selected_id)
 	var nursery_button: Button = aquarium.get_node("%NurseryButton") as Button
 	_expect(nursery_button.disabled and GameState.get_nursery_eggs().is_empty() and nursery_button.text == "育嬰室（0）" and nursery_button.tooltip_text == "沒有蛋了", "Nursery keeps its counted action label at zero eggs, disables activation and reports that no eggs remain")
@@ -1649,7 +1790,7 @@ func _run() -> void:
 		aquarium.call("_on_pet_roster_pressed", panel_target_pet_id)
 		var chase_actor: Node2D = (aquarium.get("actors_by_id") as Dictionary).get(panel_target_pet_id) as Node2D
 		var before_state: Dictionary = actor_layout_before_panels[panel_target_pet_id]
-		info_open_preserved_world = bool(aquarium.get("pet_info_open")) and chase_actor != null
+		info_open_preserved_world = not bool(aquarium.get("pet_info_open")) and chase_actor != null
 		info_open_preserved_world = info_open_preserved_world and int(chase_actor.get_instance_id()) == int(actor_instances_before_panels[panel_target_pet_id])
 		info_open_preserved_world = info_open_preserved_world and str(chase_actor.get("pet_id")) == str(before_state.get("pet_id"))
 		info_open_preserved_world = info_open_preserved_world and str(chase_actor.get("behavior_state")) == str(before_state.get("behavior_state"))
@@ -1667,11 +1808,12 @@ func _run() -> void:
 			])
 	else:
 		print("G1 panel-open preservation diagnostic: no feed-ready actor for token=%s claims=%s" % [panel_drop_token, str(aquarium.get("food_claims"))])
-	_expect(info_open_preserved_world, "Selecting a pet opens its details without replacing its actor or moving its position/food target/behavior phase")
+	_expect(info_open_preserved_world, "R-UI27-1: selecting a pet (roster touch) keeps the compact panel closed and does not replace its actor or move its position/food target/behavior phase")
 	var info_close_preserved_world: bool = not panel_target_pet_id.is_empty()
 	if not panel_target_pet_id.is_empty():
 		var chase_actor_before_close: Node2D = (aquarium.get("actors_by_id") as Dictionary).get(panel_target_pet_id) as Node2D
 		var before_state: Dictionary = actor_layout_before_panels[panel_target_pet_id]
+		aquarium.call("_set_pet_info_open", true)
 		var close_position_before: Vector2 = chase_actor_before_close.global_position
 		var close_target_before: Vector2 = actor_anchor.to_global(chase_actor_before_close.get("roam_target"))
 		aquarium.call("_set_pet_info_open", false)

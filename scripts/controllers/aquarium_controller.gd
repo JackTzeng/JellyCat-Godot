@@ -39,7 +39,7 @@ const FOOD_PELLET_TEXTURE: Texture2D = preload("res://assets/food/pellet_32.png"
 @onready var runtime_log_panel: Control = %RuntimeLogPanel
 @onready var log_toggle_button: Button = %LogToggleButton
 @onready var modal_input_shield: ColorRect = %ModalInputShield
-@onready var more_items: HBoxContainer = %MoreItems
+@onready var more_items: GridContainer = %MoreItems
 @onready var more_button: Button = %MoreButton
 @onready var pet_roster: HBoxContainer = %PetRoster
 @onready var pet_roster_backdrop: ColorRect = %PetRosterBackdrop
@@ -57,6 +57,12 @@ const FOOD_PELLET_TEXTURE: Texture2D = preload("res://assets/food/pellet_32.png"
 @onready var pet_growth_bar: ProgressBar = %PetGrowthBar
 @onready var back_to_primary_button: Button = %BackToPrimaryButton
 @onready var rename_button: Button = %RenameButton
+@onready var info_actions: HBoxContainer = %InfoActions
+@onready var detail_button: Button = %DetailButton
+@onready var detail_back_button: Button = %DetailBackButton
+@onready var info_grid: GridContainer = %InfoGrid
+@onready var growth_row: HBoxContainer = %GrowthRow
+@onready var detail_rows: VBoxContainer = %DetailRows
 @onready var rename_panel: PanelContainer = %RenamePanel
 @onready var nickname_edit: LineEdit = %NicknameEdit
 @onready var rename_confirm_button: Button = %RenameConfirmButton
@@ -90,6 +96,7 @@ var last_layout_viewport_size: Vector2 = Vector2.ZERO
 var rename_keyboard_request_count: int = 0
 var active_water_rect: Rect2 = Rect2()
 var rename_modal_active: bool = false
+var pet_detail_open: bool = false
 var pet_info_open: bool = false
 var more_actions_open: bool = false
 var world_actions_enabled: bool = false
@@ -109,6 +116,8 @@ func _ready() -> void:
 	log_toggle_button.pressed.connect(_on_log_toggle_pressed)
 	more_button.pressed.connect(_on_more_pressed)
 	pet_info_button.pressed.connect(_on_pet_info_toggle_pressed)
+	detail_button.pressed.connect(_set_pet_detail_open.bind(true))
+	detail_back_button.pressed.connect(_set_pet_detail_open.bind(false))
 	back_to_primary_button.pressed.connect(_close_more_menu)
 	runtime_log_panel.get_node("Main/TitleBar/CloseLogButton").pressed.connect(_close_topmost_panel)
 	log_toggle_button.visible = OS.is_debug_build()
@@ -339,6 +348,8 @@ func _set_pet_info_open(should_open: bool) -> void:
 		_update_pet_info_button()
 		return
 	pet_info_open = should_open
+	if not should_open:
+		pet_detail_open = false
 	info_expanded_panel.visible = should_open
 	_set_pet_info_widgets_visible(should_open)
 	_update_pet_info_button()
@@ -346,28 +357,48 @@ func _set_pet_info_open(should_open: bool) -> void:
 	_refresh(false)
 
 
+func _set_pet_detail_open(should_open: bool) -> void:
+	if not pet_info_open or pet_detail_open == should_open:
+		return
+	pet_detail_open = should_open
+	_set_pet_info_widgets_visible(true)
+	_apply_responsive_layout()
+	_refresh(false)
+
+
 func _set_pet_info_widgets_visible(should_show: bool) -> void:
 	coin_label.visible = true
 	pet_info_button.visible = true
-	rename_button.visible = should_show
+	var detail_page: bool = should_show and pet_detail_open
+	var compact_page: bool = should_show and not pet_detail_open
+	info_grid.visible = compact_page
+	growth_row.visible = compact_page
+	detail_rows.visible = detail_page
+	info_actions.visible = should_show
+	detail_button.visible = compact_page
+	rename_button.visible = detail_page
+	detail_back_button.visible = detail_page
 	pet_growth_bar.visible = not should_show
-	for detail_control in [
-		pet_name_label,
-		gender_placeholder_label,
+	for compact_control in [
 		stage_label,
+		health_label,
 		hunger_label,
 		hunger_bar,
 		mood_label,
 		mood_bar,
-		cleanliness_label,
-		clean_bar,
-		health_label,
 		exp_label,
 		growth_exp_bar,
-		touch_exp_label,
 		evolution_label,
 	]:
-		detail_control.visible = should_show
+		compact_control.visible = compact_page
+	pet_name_label.visible = should_show
+	for detail_control in [
+		gender_placeholder_label,
+		cleanliness_label,
+		clean_bar,
+		touch_exp_label,
+	]:
+		detail_control.visible = detail_page
 	coin_label.add_theme_font_size_override("font_size", 22 if should_show else 16)
 
 
@@ -415,6 +446,7 @@ func _on_time_scale_pressed() -> void:
 func _on_time_scale_changed(previous_scale: int, new_scale: int) -> void:
 	FoodDropSystem.rescale_expiration_deadlines(previous_scale, new_scale)
 	_update_time_scale_widgets()
+	_apply_responsive_layout()
 
 
 func _update_time_scale_widgets() -> void:
@@ -610,7 +642,7 @@ func _refresh(log_refresh: bool = false) -> void:
 	pet_name_label.text = nickname
 	gender_placeholder_label.text = "性別：—"
 	stage_label.text = "階段 %d · %s" % [int(jellycat.get("stage", 1)), str(stage_data.get("name", ""))]
-	pet_summary_label.text = nickname if pet_info_open else "%s｜飢餓 %d｜心情 %d" % [nickname, hunger_value, mood_value]
+	pet_summary_label.text = nickname if pet_info_open else "%s｜階段 %d｜飢餓 %d｜心情 %d" % [nickname, int(jellycat.get("stage", 1)), hunger_value, mood_value]
 	pet_growth_bar.max_value = next_growth_exp
 	pet_growth_bar.value = minf(float(growth_exp), float(next_growth_exp))
 	pet_growth_bar.tooltip_text = "成長經驗：%d／%d" % [growth_exp, next_growth_exp]
@@ -853,7 +885,8 @@ func _on_pet_roster_pressed(pet_id: String) -> void:
 	if not GameState.get_active_pet_ids().has(pet_id):
 		return
 	GameState.set_selected_pet_id(pet_id)
-	_set_pet_info_open(true)
+	# R-UI27-1: roster selection performs one touch but never opens information.
+	_try_touch_pet(pet_id, actors_by_id.get(pet_id) as Node2D)
 	_refresh(false)
 
 
@@ -954,18 +987,33 @@ func _layout_ui(viewport_size: Vector2, safe_rect: Rect2, touch_target_override:
 	var primary_width: float = primary_button_width * 4.0 + action_gap * 3.0
 	primary_actions.custom_minimum_size = Vector2(primary_width, row_height)
 	primary_actions.size = primary_actions.custom_minimum_size
-	var menu_button_width: float = maxf(112.0, touch_target + 32.0)
+	var menu_text_width: float = 0.0
+	var menu_visible_count: int = 0
 	for child in more_items.get_children():
 		if child is Button:
-			(child as Button).custom_minimum_size = Vector2(menu_button_width, row_height)
-	var menu_width: float = menu_button_width * float(more_items.get_child_count()) + action_gap * float(maxi(0, more_items.get_child_count() - 1))
-	more_items.custom_minimum_size = Vector2(menu_width, row_height)
+			(child as Button).custom_minimum_size = Vector2.ZERO
+			menu_text_width = maxf(menu_text_width, (child as Button).get_minimum_size().x)
+			if (child as Button).visible:
+				menu_visible_count += 1
+	var menu_columns: int = 4
+	while menu_columns > 2 and menu_text_width * float(menu_columns) + action_gap * float(menu_columns - 1) > right_width:
+		menu_columns -= 1
+	var menu_button_width: float = maxf(menu_text_width, minf(maxf(112.0, touch_target + 32.0), maxf(touch_target, (right_width - action_gap * float(menu_columns - 1)) / float(menu_columns))))
+	var menu_button_height: float = row_height
+	more_items.columns = menu_columns
+	for child in more_items.get_children():
+		if child is Button:
+			(child as Button).custom_minimum_size = Vector2(menu_button_width, menu_button_height)
+	var menu_rows: int = ceili(float(maxi(menu_visible_count, 1)) / float(menu_columns))
+	var menu_width: float = menu_button_width * float(menu_columns) + action_gap * float(menu_columns - 1)
+	var menu_height: float = menu_button_height * float(menu_rows) + action_gap * float(maxi(0, menu_rows - 1))
+	more_items.custom_minimum_size = Vector2(menu_width, menu_height)
 	more_items.size = more_items.custom_minimum_size
-	var visible_action_width: float = menu_width if more_actions_open else primary_width
-	action_bar.custom_minimum_size = Vector2(visible_action_width, row_height)
+	var visible_action_width: float = minf(right_width, menu_width) if more_actions_open else primary_width
+	action_bar.custom_minimum_size = Vector2(visible_action_width, menu_height if more_actions_open else row_height)
 	action_bar.size = action_bar.custom_minimum_size
 	var action_height: float = maxf(row_height, action_scroll.get_combined_minimum_size().y)
-	var hud_height: float = minf(safe_height * 0.3, maxf(maxf(touch_target + 16.0, safe_height * 0.15), action_height))
+	var hud_height: float = minf(safe_height * 0.6, maxf(maxf(touch_target + 16.0, safe_height * 0.15), action_height))
 	var hud_y: float = safe_bottom - hud_height
 	var hud_rect: Rect2 = Rect2(Vector2(safe_left, hud_y), Vector2(safe_width, hud_height))
 	_place_control(bottom_hud, hud_rect)
@@ -981,12 +1029,21 @@ func _layout_ui(viewport_size: Vector2, safe_rect: Rect2, touch_target_override:
 	var water_top: float = message_label.position.y + message_label.size.y + margin
 	var water_bottom: float = hud_y - margin
 	if pet_info_open:
-		var expanded_height: float = minf(safe_height * 0.45, maxf(220.0, touch_target * 2.2))
-		var expanded_rect: Rect2 = Rect2(Vector2(info_left, hud_y - expanded_height), Vector2(info_width, expanded_height))
+		var expanded_height: float = minf(safe_height * 0.3, maxf(220.0, touch_target * 2.2))
+		var expanded_width: float = minf(info_width, safe_width * 0.45)
+		var expanded_rect: Rect2 = Rect2(Vector2(info_left, hud_y - expanded_height), Vector2(expanded_width, expanded_height))
 		_place_control(info_expanded_panel, expanded_rect)
-		_place_control(status_scroll, Rect2(Vector2(8.0, 8.0), expanded_rect.size - Vector2(16.0, 16.0)))
-		top_panel.custom_minimum_size.x = maxf(1.0, status_scroll.size.x)
-		rename_button.custom_minimum_size = Vector2(maxf(96.0, touch_target), row_height)
+		var action_button_width: float = maxf(96.0, touch_target)
+		var action_button_count: int = 2 if pet_detail_open else 1
+		var actions_width: float = action_button_width * float(action_button_count) + 8.0 * float(action_button_count - 1)
+		var scroll_width: float = maxf(1.0, expanded_rect.size.x - 24.0 - actions_width)
+		top_panel.custom_minimum_size.x = 0.0
+		status_scroll.custom_minimum_size = Vector2.ZERO
+		_place_control(status_scroll, Rect2(Vector2(8.0, 8.0), Vector2(scroll_width, expanded_rect.size.y - 16.0)))
+		for info_action_button in [detail_button, rename_button, detail_back_button]:
+			(info_action_button as Button).custom_minimum_size = Vector2(action_button_width, row_height)
+			(info_action_button as Button).size = Vector2(action_button_width, row_height)
+		_place_control(info_actions, Rect2(Vector2(expanded_rect.size.x - 8.0 - actions_width, 8.0), Vector2(actions_width, row_height)))
 		var detail_font_size: int = 14 if touch_target >= 96.0 else 16
 		for detail_label in [pet_name_label, gender_placeholder_label, stage_label, hunger_label, mood_label, cleanliness_label, health_label, exp_label, evolution_label, touch_exp_label]:
 			detail_label.add_theme_font_size_override("font_size", detail_font_size)
@@ -1625,8 +1682,11 @@ func _unhandled_input(event: InputEvent) -> void:
 	if selected_actor != null:
 		var selected_pet_id: String = str(selected_actor.get("pet_id"))
 		GameState.set_selected_pet_id(selected_pet_id)
-		_set_pet_info_open(true)
 		_try_touch_pet(selected_pet_id, selected_actor)
+		_record_world_input(screen_position, input_kind)
+		return
+	if pet_info_open:
+		_set_pet_info_open(false)
 		_record_world_input(screen_position, input_kind)
 		return
 	_drop_basic_food(screen_position)
@@ -1681,6 +1741,8 @@ func _close_topmost_panel() -> bool:
 		_sync_modal_input_shield()
 		_apply_responsive_layout()
 		_refresh(false)
+	elif pet_detail_open:
+		_set_pet_detail_open(false)
 	elif pet_info_open:
 		_set_pet_info_open(false)
 	else:

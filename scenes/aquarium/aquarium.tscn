@@ -95,7 +95,7 @@ theme_override_constants/separation = 4
 [node name="HeaderRow" type="HBoxContainer" parent="InfoExpandedPanel/StatusScroll/TopPanel"]
 unique_name_in_owner = true
 layout_mode = 2
-theme_override_constants/separation = 4
+theme_override_constants/separation = 8
 
 [node name="PetNameLabel" type="Label" parent="InfoExpandedPanel/StatusScroll/TopPanel/HeaderRow"]
 unique_name_in_owner = true
@@ -103,12 +103,6 @@ layout_mode = 2
 size_flags_horizontal = 3
 text = "水母喵"
 clip_text = false
-
-[node name="RenameButton" type="Button" parent="InfoExpandedPanel/StatusScroll/TopPanel/HeaderRow"]
-unique_name_in_owner = true
-visible = false
-layout_mode = 2
-text = "改名"
 
 [node name="GenderPlaceholderLabel" type="Label" parent="InfoExpandedPanel/StatusScroll/TopPanel/HeaderRow"]
 unique_name_in_owner = true
@@ -119,8 +113,13 @@ clip_text = false
 [node name="StageLabel" type="Label" parent="InfoExpandedPanel/StatusScroll/TopPanel/HeaderRow"]
 unique_name_in_owner = true
 layout_mode = 2
-size_flags_horizontal = 3
 text = "階段 1 · 水母喵"
+clip_text = false
+
+[node name="HealthLabel" type="Label" parent="InfoExpandedPanel/StatusScroll/TopPanel/HeaderRow"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "健康：正常"
 clip_text = false
 
 [node name="InfoGrid" type="GridContainer" parent="InfoExpandedPanel/StatusScroll/TopPanel"]
@@ -146,7 +145,7 @@ clip_text = false
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
-custom_minimum_size = Vector2(56, 8)
+custom_minimum_size = Vector2(40, 8)
 max_value = 100.0
 show_percentage = false
 
@@ -165,79 +164,85 @@ clip_text = false
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
-custom_minimum_size = Vector2(56, 8)
+custom_minimum_size = Vector2(40, 8)
 max_value = 100.0
 show_percentage = false
 
-[node name="CleanlinessCell" type="HBoxContainer" parent="InfoExpandedPanel/StatusScroll/TopPanel/InfoGrid"]
-layout_mode = 2
-size_flags_horizontal = 3
-theme_override_constants/separation = 4
-
-[node name="CleanlinessLabel" type="Label" parent="InfoExpandedPanel/StatusScroll/TopPanel/InfoGrid/CleanlinessCell"]
+[node name="GrowthRow" type="HBoxContainer" parent="InfoExpandedPanel/StatusScroll/TopPanel"]
 unique_name_in_owner = true
-layout_mode = 2
-text = "清潔度：0 / 100"
-clip_text = false
-
-[node name="CleanBar" type="ProgressBar" parent="InfoExpandedPanel/StatusScroll/TopPanel/InfoGrid/CleanlinessCell"]
-unique_name_in_owner = true
-layout_mode = 2
-size_flags_horizontal = 3
-custom_minimum_size = Vector2(56, 8)
-max_value = 100.0
-show_percentage = false
-
-[node name="HealthCell" type="VBoxContainer" parent="InfoExpandedPanel/StatusScroll/TopPanel/InfoGrid"]
-layout_mode = 2
-size_flags_horizontal = 3
-theme_override_constants/separation = 0
-
-[node name="HealthLabel" type="Label" parent="InfoExpandedPanel/StatusScroll/TopPanel/InfoGrid/HealthCell"]
-unique_name_in_owner = true
-layout_mode = 2
-text = "健康：正常"
-clip_text = false
-
-[node name="GrowthCell" type="VBoxContainer" parent="InfoExpandedPanel/StatusScroll/TopPanel/InfoGrid"]
-layout_mode = 2
-size_flags_horizontal = 3
-theme_override_constants/separation = 0
-
-[node name="GrowthRow" type="HBoxContainer" parent="InfoExpandedPanel/StatusScroll/TopPanel/InfoGrid/GrowthCell"]
 layout_mode = 2
 theme_override_constants/separation = 4
 
-[node name="ExpLabel" type="Label" parent="InfoExpandedPanel/StatusScroll/TopPanel/InfoGrid/GrowthCell/GrowthRow"]
+[node name="ExpLabel" type="Label" parent="InfoExpandedPanel/StatusScroll/TopPanel/GrowthRow"]
 unique_name_in_owner = true
 layout_mode = 2
-size_flags_horizontal = 3
 text = "成長經驗：0 / 0"
 clip_text = false
 
-[node name="GrowthExpBar" type="ProgressBar" parent="InfoExpandedPanel/StatusScroll/TopPanel/InfoGrid/GrowthCell/GrowthRow"]
+[node name="GrowthExpBar" type="ProgressBar" parent="InfoExpandedPanel/StatusScroll/TopPanel/GrowthRow"]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
-custom_minimum_size = Vector2(56, 8)
+custom_minimum_size = Vector2(40, 8)
 show_percentage = false
 
-[node name="EvolutionLabel" type="Label" parent="InfoExpandedPanel/StatusScroll/TopPanel/InfoGrid/GrowthCell"]
+[node name="EvolutionLabel" type="Label" parent="InfoExpandedPanel/StatusScroll/TopPanel/GrowthRow"]
 unique_name_in_owner = true
 layout_mode = 2
 text = "下一階段：水母喵 · 還需 0 經驗"
 clip_text = false
 
-[node name="TouchCell" type="VBoxContainer" parent="InfoExpandedPanel/StatusScroll/TopPanel/InfoGrid"]
+[node name="DetailRows" type="VBoxContainer" parent="InfoExpandedPanel/StatusScroll/TopPanel"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+theme_override_constants/separation = 2
+
+[node name="CleanlinessCell" type="HBoxContainer" parent="InfoExpandedPanel/StatusScroll/TopPanel/DetailRows"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="CleanlinessLabel" type="Label" parent="InfoExpandedPanel/StatusScroll/TopPanel/DetailRows/CleanlinessCell"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "清潔度：0 / 100"
+clip_text = false
+
+[node name="CleanBar" type="ProgressBar" parent="InfoExpandedPanel/StatusScroll/TopPanel/DetailRows/CleanlinessCell"]
+unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
-theme_override_constants/separation = 0
+custom_minimum_size = Vector2(40, 8)
+max_value = 100.0
+show_percentage = false
 
-[node name="TouchExpLabel" type="Label" parent="InfoExpandedPanel/StatusScroll/TopPanel/InfoGrid/TouchCell"]
+[node name="TouchExpLabel" type="Label" parent="InfoExpandedPanel/StatusScroll/TopPanel/DetailRows"]
 unique_name_in_owner = true
 layout_mode = 2
 text = "摸摸經驗：0/20｜可累積"
 clip_text = false
+
+[node name="InfoActions" type="HBoxContainer" parent="InfoExpandedPanel"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="DetailButton" type="Button" parent="InfoExpandedPanel/InfoActions"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "詳細"
+
+[node name="RenameButton" type="Button" parent="InfoExpandedPanel/InfoActions"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+text = "改名"
+
+[node name="DetailBackButton" type="Button" parent="InfoExpandedPanel/InfoActions"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+text = "返回"
 
 [node name="InventoryBackdrop" type="ColorRect" parent="."]
 unique_name_in_owner = true
@@ -365,11 +370,23 @@ unique_name_in_owner = true
 layout_mode = 2
 text = "更多"
 
-[node name="MoreItems" type="HBoxContainer" parent="ActionScroll/ActionBar"]
+[node name="MoreItems" type="GridContainer" parent="ActionScroll/ActionBar"]
 unique_name_in_owner = true
 visible = false
 layout_mode = 2
-theme_override_constants/separation = 8
+columns = 4
+theme_override_constants/h_separation = 8
+theme_override_constants/v_separation = 8
+
+[node name="TimeScaleButton" type="Button" parent="ActionScroll/ActionBar/MoreItems"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "測試加速 ×1"
+
+[node name="BackToPrimaryButton" type="Button" parent="ActionScroll/ActionBar/MoreItems"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "返回"
 
 [node name="CleanButton" type="Button" parent="ActionScroll/ActionBar/MoreItems"]
 unique_name_in_owner = true
@@ -395,16 +412,6 @@ text = "商店"
 unique_name_in_owner = true
 layout_mode = 2
 text = "日誌"
-
-[node name="TimeScaleButton" type="Button" parent="ActionScroll/ActionBar/MoreItems"]
-unique_name_in_owner = true
-layout_mode = 2
-text = "測試加速 ×1"
-
-[node name="BackToPrimaryButton" type="Button" parent="ActionScroll/ActionBar/MoreItems"]
-unique_name_in_owner = true
-layout_mode = 2
-text = "返回"
 
 [node name="ModalOverlay" type="Control" parent="."]
 unique_name_in_owner = true
