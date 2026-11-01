@@ -2,6 +2,57 @@ extends Node
 
 class_name CoinDropSystem
 
+const KIND_COIN: String = "coin"
+const KIND_PEARL: String = "pearl"
+const KIND_DIAMOND: String = "diamond"
+const KINDS: Array[String] = [KIND_COIN, KIND_PEARL, KIND_DIAMOND]
+
+# Injectable randomness for meal-coin rarity rolls (tests / reproducible regressions).
+static var _rng: RandomNumberGenerator = null
+static var _forced_roll: float = -1.0
+
+
+static func seed_rng(seed_value: int) -> void:
+	_rng = RandomNumberGenerator.new()
+	_rng.seed = seed_value
+	_forced_roll = -1.0
+
+
+static func use_system_rng() -> void:
+	_rng = null
+	_forced_roll = -1.0
+
+
+# Test hook: every roll returns this value in [0, 1] until cleared with use_system_rng()/seed_rng().
+static func force_roll(roll: float) -> void:
+	_forced_roll = clampf(roll, 0.0, 1.0)
+
+
+static func next_roll() -> float:
+	if _forced_roll >= 0.0:
+		return _forced_roll
+	if _rng == null:
+		_rng = RandomNumberGenerator.new()
+		_rng.randomize()
+	return _rng.randf()
+
+
+static func normalize_kind(kind: Variant) -> String:
+	var text: String = str(kind)
+	return text if KINDS.has(text) else KIND_COIN
+
+
+# One independent roll per meal: diamond band first, then pearl band, else a normal coin.
+static func roll_meal_coin(normal_value: int, roll: float = -1.0) -> Dictionary:
+	var value: float = next_roll() if roll < 0.0 else roll
+	var diamond_chance: float = clampf(float(GameApp.get_balance_value("diamond_drop_chance", 0.0)), 0.0, 1.0)
+	var pearl_chance: float = clampf(float(GameApp.get_balance_value("pearl_drop_chance", 0.0)), 0.0, 1.0)
+	if value < diamond_chance:
+		return {"kind": KIND_DIAMOND, "value": maxi(int(GameApp.get_balance_value("diamond_coin_value", 30)), 1)}
+	if value < diamond_chance + pearl_chance:
+		return {"kind": KIND_PEARL, "value": maxi(int(GameApp.get_balance_value("pearl_coin_value", 15)), 1)}
+	return {"kind": KIND_COIN, "value": normal_value}
+
 
 static func can_spawn_coin_bubble(active_count: int) -> bool:
 	if active_count >= int(GameApp.get_balance_value("max_coin_bubbles_on_screen")):
@@ -52,10 +103,16 @@ static func collect_coin(token_id: String, auto_collected: bool) -> Dictionary:
 	var drop: Dictionary = GameState.resolve_coin_drop(token_id)
 	if drop.is_empty():
 		return {}
+	var kind_label: String = "Bubble coin"
+	match CoinDropSystem.normalize_kind(drop.get("kind", "coin")):
+		CoinDropSystem.KIND_PEARL:
+			kind_label = "Pearl"
+		CoinDropSystem.KIND_DIAMOND:
+			kind_label = "Diamond"
 	if auto_collected:
-		RuntimeLogger.log_info("Bubble coin auto-collected: +%d" % int(drop.get("value", 0)))
+		RuntimeLogger.log_info("%s auto-collected: +%d" % [kind_label, int(drop.get("value", 0))])
 	else:
-		RuntimeLogger.log_action("Bubble coin picked: +%d" % int(drop.get("value", 0)))
+		RuntimeLogger.log_action("%s picked: +%d" % [kind_label, int(drop.get("value", 0))])
 	if not SaveManager.save_game():
 		push_warning("Coin transaction resolved in memory, but the immediate save failed.")
 	return drop

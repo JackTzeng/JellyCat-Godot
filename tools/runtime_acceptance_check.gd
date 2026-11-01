@@ -18,6 +18,7 @@ func _run() -> void:
 		return
 	SaveManager.reset_save()
 	GameApp.load_data_tables()
+	CoinDropSystem.force_roll(1.0)  # G2-B-1: keep meal-coin value assertions deterministic (normal coins); rarity is covered in the G1 suite.
 	_check_scenes()
 	_check_three_pet_hatch_and_care()
 	_check_touch_balance()
@@ -477,15 +478,117 @@ func _feed_until_refused(pet_id: String, active_food_limit: int) -> Dictionary:
 	return result
 
 
+func _set_mood_test_pet(pet_id: String, hunger: int, mood: int) -> void:
+	var pet: Dictionary = GameState.get_pet(pet_id)
+	pet["hunger"] = hunger
+	pet["mood"] = mood
+	pet["health"] = "healthy"
+	GameState.set_pet(pet_id, pet)
+
+
+func _mood_test_value(pet_id: String) -> int:
+	return int(GameState.get_pet(pet_id).get("mood", -1))
+
+
+# G2-B-1-R1: mood decays by whole points per interval, remainders are kept, and leaving a state clears them.
+func _check_g2_mood_decay_rhythm(pet_id: String, max_hunger: int, max_mood: int, hungry_max: int, seconds_per_minute: int) -> void:
+	var hunger_interval: int = int(GameApp.get_balance_value("hunger_decay_interval_seconds"))
+	var food_add: int = int((GameApp.get_table("items").get("food_basic", {}) as Dictionary).get("hunger_add", 0))
+	var food_mood: int = int((GameApp.get_table("items").get("food_basic", {}) as Dictionary).get("mood_add", 0))
+	# (a) 30 formal minutes of staying in the hungry band loses exactly 3 points (hunger is held in the band each tick).
+	CareSystem.reset_online_hunger_carry()
+	_set_mood_test_pet(pet_id, hungry_max, max_mood)
+	for _tick in range(30):
+		CareSystem.apply_online_care_decay(seconds_per_minute)
+		var held: Dictionary = GameState.get_pet(pet_id)
+		held["hunger"] = hungry_max
+		GameState.set_pet(pet_id, held)
+	_expect(_mood_test_value(pet_id) == max_mood - 3, "G2-B-1-R1 30 formal minutes in the hungry band lose exactly 3 mood points (600s per point)")
+	# (b) 10 formal minutes of not feeding from the start loses 1 point (hungry band, hunger still above 0 afterwards).
+	CareSystem.reset_online_hunger_carry()
+	_set_mood_test_pet(pet_id, hungry_max, max_mood)
+	CareSystem.apply_online_care_decay(10 * seconds_per_minute)
+	_expect(_mood_test_value(pet_id) == max_mood - 1, "G2-B-1-R1 not feeding for 10 formal minutes from the hungry band loses exactly 1 mood point")
+	# (c) Remainder is preserved across calls: 9 minutes then 1 minute equals one point; 9 minutes alone loses none.
+	CareSystem.reset_online_hunger_carry()
+	_set_mood_test_pet(pet_id, hungry_max, max_mood)
+	CareSystem.apply_online_care_decay(9 * seconds_per_minute)
+	_expect(_mood_test_value(pet_id) == max_mood, "G2-B-1-R1 9 minutes in the hungry band lose no mood yet (remainder is kept, not rounded up)")
+	CareSystem.apply_online_care_decay(seconds_per_minute)
+	_expect(_mood_test_value(pet_id) == max_mood - 1, "G2-B-1-R1 the kept 540-second remainder plus one more minute completes the 600-second interval")
+	# (d) Starving: exactly 1 point per 300 seconds with a preserved remainder (4 min + 1 min = 1 point, then 5 more = 1 more).
+	CareSystem.reset_online_hunger_carry()
+	_set_mood_test_pet(pet_id, 0, max_mood)
+	CareSystem.apply_online_care_decay(4 * seconds_per_minute)
+	var starving_four: int = _mood_test_value(pet_id)
+	CareSystem.apply_online_care_decay(seconds_per_minute)
+	var starving_five: int = _mood_test_value(pet_id)
+	CareSystem.apply_online_care_decay(5 * seconds_per_minute)
+	_expect(starving_four == max_mood and starving_five == max_mood - 1 and _mood_test_value(pet_id) == max_mood - 2, "G2-B-1-R1 starving loses 1 mood point per 300 seconds and keeps the remainder between calls")
+	# (e) State switch clears the remainder: 9 minutes hungry, then fed out of the band for 1 minute, then back in the band needs a full 600s again.
+	CareSystem.reset_online_hunger_carry()
+	_set_mood_test_pet(pet_id, hungry_max, max_mood)
+	CareSystem.apply_online_care_decay(9 * seconds_per_minute)
+	_set_mood_test_pet(pet_id, hungry_max + food_add, max_mood)
+	CareSystem.apply_online_care_decay(seconds_per_minute)
+	_set_mood_test_pet(pet_id, hungry_max, max_mood)
+	CareSystem.apply_online_care_decay(9 * seconds_per_minute)
+	_expect(_mood_test_value(pet_id) == max_mood, "G2-B-1-R1 leaving the hungry band clears the remainder (9 + out + 9 minutes loses nothing)")
+	CareSystem.apply_online_care_decay(seconds_per_minute)
+	_expect(_mood_test_value(pet_id) == max_mood - 1, "G2-B-1-R1 after the reset a fresh 600-second interval costs one point")
+	# (f) Hungry -> starving switch clears the carry: 9 minutes hungry, then hunger 0 needs a full 300s before the first starving point.
+	CareSystem.reset_online_hunger_carry()
+	_set_mood_test_pet(pet_id, hungry_max, max_mood)
+	CareSystem.apply_online_care_decay(9 * seconds_per_minute)
+	_set_mood_test_pet(pet_id, 0, max_mood)
+	CareSystem.apply_online_care_decay(4 * seconds_per_minute)
+	_expect(_mood_test_value(pet_id) == max_mood, "G2-B-1-R1 switching hungry to starving does not carry the hungry remainder over")
+	# (g) A2 design rhythm: newly hatched pet (hunger 40, mood 70) fed within 20 formal-x60 seconds (= 20 ticks) of becoming hungry, 3 rounds.
+	CareSystem.reset_online_hunger_carry()
+	_set_mood_test_pet(pet_id, 40, 70)
+	var rhythm_ok: bool = true
+	var rhythm_min_mood: int = 70
+	for _round in range(3):
+		var waited_ticks: int = 0
+		while int(GameState.get_pet(pet_id).get("hunger", 0)) > hungry_max and waited_ticks < 200:
+			CareSystem.apply_online_care_decay(seconds_per_minute)
+			waited_ticks += 1
+		for _feed_delay in range(20):
+			CareSystem.apply_online_care_decay(seconds_per_minute)
+			rhythm_min_mood = mini(rhythm_min_mood, _mood_test_value(pet_id))
+		rhythm_ok = rhythm_ok and CareSystem.feed_food(pet_id)
+		rhythm_min_mood = mini(rhythm_min_mood, _mood_test_value(pet_id))
+	_expect(rhythm_ok and _mood_test_value(pet_id) >= 70, "G2-B-1-R1 three 2-minute feeding rounds (fed within 20 seconds of becoming hungry) end with mood >= the passive-coin threshold 70")
+	_expect(rhythm_min_mood >= 68, "G2-B-1-R1 during the three rounds mood never drops more than 2 points below the passive-coin threshold")
+	# (h) Unfed 30 formal minutes from hunger 40 loses 3 points in the hungry band.
+	CareSystem.reset_online_hunger_carry()
+	_set_mood_test_pet(pet_id, hungry_max, 70)
+	CareSystem.apply_online_care_decay(30 * seconds_per_minute)
+	var unfed_pet: Dictionary = GameState.get_pet(pet_id)
+	var unfed_expected: int = 70 - 3
+	_expect(int(unfed_pet.get("hunger", -1)) == maxi(0, hungry_max - 30 * seconds_per_minute / hunger_interval) and int(unfed_pet.get("mood", -1)) == unfed_expected, "G2-B-1-R1 not feeding for 30 formal minutes in the hungry band deducts exactly 3 mood points")
+	CareSystem.reset_online_hunger_carry()
+
+
 func _check_g2_care_regressions() -> void:
 	var max_hunger: int = int(GameApp.get_balance_value("max_hunger"))
 	var max_mood: int = int(GameApp.get_balance_value("max_mood"))
 	var hunger_threshold: int = int(GameApp.get_balance_value("food_refusal_hunger_threshold"))
 	var hungry_max: int = int(GameApp.get_balance_value("hungry_hunger_max"))
 	var seconds_per_minute: int = int(GameApp.get_balance_value("seconds_per_minute"))
-	var hunger_decay: int = int(GameApp.get_balance_value("hunger_decay_per_minute"))
-	var hungry_mood_decay: int = int(GameApp.get_balance_value("mood_decay_hungry_per_min"))
-	var starving_mood_decay: int = int(GameApp.get_balance_value("mood_decay_starving_per_min"))
+	# G2-B-1 old->new: hunger_decay_per_minute (int/min) -> hunger_decay_points per hunger_decay_interval_seconds.
+	var hunger_decay_points: int = int(GameApp.get_balance_value("hunger_decay_points"))
+	var hunger_decay_interval: int = int(GameApp.get_balance_value("hunger_decay_interval_seconds"))
+	CareSystem.reset_online_hunger_carry()
+	CoinDropSystem.force_roll(1.0)
+	# G2-B-1-R1 old->new: mood_decay_hungry_per_min / mood_decay_starving_per_min (points per minute)
+	# -> mood_decay_*_points per mood_decay_*_interval_seconds (whole points, remainder carried).
+	var hungry_mood_points: int = int(GameApp.get_balance_value("mood_decay_hungry_points"))
+	var hungry_mood_interval: int = int(GameApp.get_balance_value("mood_decay_hungry_interval_seconds"))
+	var starving_mood_points: int = int(GameApp.get_balance_value("mood_decay_starving_points"))
+	var starving_mood_interval: int = int(GameApp.get_balance_value("mood_decay_starving_interval_seconds"))
+	_expect(not GameApp.get_table("balance").has("mood_decay_hungry_per_min") and not GameApp.get_table("balance").has("mood_decay_starving_per_min"), "G2-B-1-R1 the legacy per-minute mood decay keys are removed from balance data")
+	_expect(hungry_mood_points == 1 and hungry_mood_interval == 600 and starving_mood_points == 1 and starving_mood_interval == 300, "G2-B-1-R1 mood decay data is 1 point per 600s when hungry and 1 point per 300s when starving")
 	var pet_ids: Array[String] = _seed_g2_simulation_pets(max_hunger, max_mood)
 	if pet_ids.is_empty():
 		return
@@ -498,8 +601,8 @@ func _check_g2_care_regressions() -> void:
 	var ten_test_minutes: int = 10
 	CareSystem.apply_online_care_decay(ten_test_minutes * seconds_per_minute)
 	var starving_after: Dictionary = GameState.get_pet(pet_id)
-	var expected_starving_mood: int = maxi(0, max_mood - ten_test_minutes * starving_mood_decay)
-	_expect(int(starving_after.get("hunger", -1)) == 0 and int(starving_after.get("mood", -1)) == expected_starving_mood, "Online starving decay respects the configured rate and clamps at zero")
+	var expected_starving_mood: int = maxi(0, max_mood - (ten_test_minutes * seconds_per_minute / starving_mood_interval) * starving_mood_points)
+	_expect(int(starving_after.get("hunger", -1)) == 0 and int(starving_after.get("mood", -1)) == expected_starving_mood, "Online starving decay loses the configured whole mood points per interval (10 minutes = 2 points) and clamps at zero")
 	_expect(str(starving_after.get("health", "")) == "healthy" and not GameState.get_pet(pet_id).is_empty(), "Starvation does not cause illness or death")
 	pet = GameState.get_pet(pet_id)
 	pet["hunger"] = max_hunger
@@ -508,25 +611,31 @@ func _check_g2_care_regressions() -> void:
 	var four_test_minutes: int = 4
 	CareSystem.apply_online_care_decay(four_test_minutes * seconds_per_minute)
 	var four_minute_after: Dictionary = GameState.get_pet(pet_id)
-	var expected_four_minute_hunger: int = maxi(0, max_hunger - four_test_minutes * hunger_decay)
-	_expect(int(four_minute_after.get("hunger", -1)) == expected_four_minute_hunger, "Time-injected four-minute care decay reaches the configured hunger value")
+	var expected_four_minute_hunger: int = maxi(0, max_hunger - (four_test_minutes * seconds_per_minute / hunger_decay_interval) * hunger_decay_points)
+	_expect(int(four_minute_after.get("hunger", -1)) == expected_four_minute_hunger and expected_four_minute_hunger < max_hunger, "Time-injected four-minute care decay reaches the configured hunger value without truncating fractional decay to zero")
 	pet = GameState.get_pet(pet_id)
 	pet["hunger"] = hungry_max
 	pet["mood"] = max_mood
 	GameState.set_pet(pet_id, pet)
 	var hungry_first_minute_hunger: int = -1
+	var hungry_second_minute_hunger: int = -1
 	for minute_index in range(ten_test_minutes):
 		CareSystem.apply_online_care_decay(seconds_per_minute)
 		pet = GameState.get_pet(pet_id)
 		if minute_index == 0:
 			hungry_first_minute_hunger = int(pet.get("hunger", -1))
+		if minute_index == 1:
+			hungry_second_minute_hunger = int(pet.get("hunger", -1))
 		pet["hunger"] = hungry_max
 		GameState.set_pet(pet_id, pet)
 	var hungry_after: Dictionary = GameState.get_pet(pet_id)
-	var expected_hungry_mood: int = maxi(0, max_mood - ten_test_minutes * hungry_mood_decay)
-	_expect(int(hungry_after.get("mood", -1)) == expected_hungry_mood, "Maintained hungry-state test loses the configured mood per minute")
-	var expected_hunger_after_one_minute: int = maxi(0, hungry_max - hunger_decay)
-	_expect(hungry_first_minute_hunger == expected_hunger_after_one_minute, "Hungry state loses the configured hunger per minute")
+	var expected_hungry_mood: int = maxi(0, max_mood - (ten_test_minutes * seconds_per_minute / hungry_mood_interval) * hungry_mood_points)
+	_expect(int(hungry_after.get("mood", -1)) == expected_hungry_mood and expected_hungry_mood == max_mood - 1, "Maintained hungry-state test loses exactly 1 mood point over 10 minutes (one 600-second interval)")
+	var expected_hunger_after_one_minute: int = maxi(0, hungry_max - (seconds_per_minute / hunger_decay_interval) * hunger_decay_points)
+	var expected_hunger_after_two_minutes: int = maxi(0, hungry_max - (2 * seconds_per_minute / hunger_decay_interval) * hunger_decay_points)
+	_expect(hungry_first_minute_hunger == expected_hunger_after_one_minute, "Hungry state loses the configured whole hunger points within the first minute")
+	_expect(hungry_second_minute_hunger == expected_hunger_after_two_minutes and hungry_second_minute_hunger < hungry_max, "Hungry state loses at least one whole hunger point by the end of the second minute (carry is not lost)")
+	_check_g2_mood_decay_rhythm(pet_id, max_hunger, max_mood, hungry_max, seconds_per_minute)
 	var food: Dictionary = GameApp.get_table("items").get("food_basic", {}) as Dictionary
 	var food_hunger_add: int = int(food.get("hunger_add", 0))
 	var food_exp_add: int = int(food.get("growth_exp_add", 0))
@@ -822,7 +931,10 @@ func _check_one_hour_progression() -> void:
 	var stages: Array = evolution.get("stages", []) as Array
 	var max_stage: int = int(species.get("max_stage", 0))
 	var seconds_per_minute: int = int(GameApp.get_balance_value("seconds_per_minute"))
-	var total_minutes: int = 60
+	# G2-B-1 old->new: 60 simulated minutes (hunger 25/min, +5/meal) -> 180 simulated minutes (1 point/120 s, +20/meal); measured max-stage time is minute 160.
+	var total_minutes: int = 180
+	CareSystem.reset_online_hunger_carry()
+	CoinDropSystem.force_roll(1.0)
 	var active_food_limit: int = GameState.get_max_active_food_drops()
 	var passive_interval: int = max(int(GameApp.get_balance_value("passive_coin_interval_seconds")), 1)
 	var touch_cooldown: float = float(GameApp.get_balance_value("touch_cooldown_seconds"))
@@ -871,7 +983,11 @@ func _check_one_hour_progression() -> void:
 			var pet_before_touch: Dictionary = GameState.get_pet(pet_id)
 			var care_before_touch: Dictionary = GameState.get_current_care_stats(pet_id)
 			var touch_cap: int = int(GameApp.get_balance_value("touch_growth_exp_cap"))
-			var touch_should_change_state: bool = int(pet_before_touch.get("mood", 0)) < int(GameApp.get_balance_value("max_mood")) or int(care_before_touch.get("touch_growth_exp_hour", 0)) < touch_cap
+			# G2-B-1: the pacing deadline now spans several touch-EXP windows, so an expired window counts as 0 EXP used.
+			var touch_window_started: float = float(care_before_touch.get("touch_exp_hour_started_at", 0.0))
+			var touch_window_expired: bool = touch_window_started <= 0.0 or TimeManager.gameplay_now_seconds(touch_time) - touch_window_started >= float(GameApp.get_balance_value("touch_exp_reset_seconds"))
+			var touch_exp_used: int = 0 if touch_window_expired else int(care_before_touch.get("touch_growth_exp_hour", 0))
+			var touch_should_change_state: bool = int(pet_before_touch.get("mood", 0)) < int(GameApp.get_balance_value("max_mood")) or touch_exp_used < touch_cap
 			var touch_changed_state: bool = CareSystem.touch_pet(pet_id, touch_time)
 			_expect(touch_changed_state == touch_should_change_state, "One-hour test applies or caps the configured per-minute touch for %s at minute %d" % [pet_id, minute])
 			var pet: Dictionary = GameState.get_pet(pet_id)
@@ -945,8 +1061,8 @@ func _check_one_hour_progression() -> void:
 		for required_stage in expected_evolution_stages:
 			reached_before_deadline = reached_before_deadline and pet_stage_times.has(str(required_stage)) and int(pet_stage_times[str(required_stage)]) <= total_minutes
 		all_evolved = all_evolved and int(final_pet.get("stage", 0)) == max_stage and reached_before_deadline
-		_expect(int(final_pet.get("stage", 0)) == max_stage and reached_before_deadline, "%s reaches every configured stage through maximum by the one-hour deadline" % pet_id)
-	_expect(all_evolved, "All three pets reach the maximum configured stage within 60 simulated minutes")
+		_expect(int(final_pet.get("stage", 0)) == max_stage and reached_before_deadline, "%s reaches every configured stage through maximum by the paced 180-minute deadline" % pet_id)
+	_expect(all_evolved, "All three pets reach the maximum configured stage within 180 simulated minutes (was 60 before G2-B-1 meal pacing)")
 	var first_pet_id: String = pet_ids[0]
 	var first_pet_before_duplicate: Dictionary = GameState.get_pet(first_pet_id)
 	var coins_before_duplicate: int = GameState.get_currency("bubble_coin")

@@ -1,6 +1,24 @@
 extends Node
 class_name CareSystem
 
+# Seconds of online hunger decay not yet converted into a whole hunger point.
+static var _online_hunger_carry_seconds: float = 0.0
+
+
+# Per-pet mood decay carry: {pet_id: {"state": int, "carry": int}}. In-memory only (no save schema change).
+# state: 0 = not hungry (no decay, carry stays 0), 1 = hungry (0 < hunger <= hungry_hunger_max), 2 = starving (hunger == 0).
+# Leaving a state resets the carry to 0 so remainders never accumulate across states.
+static var _online_mood_carry: Dictionary = {}
+
+
+static func reset_online_hunger_carry() -> void:
+	_online_hunger_carry_seconds = 0.0
+	_online_mood_carry.clear()
+
+
+static func reset_online_mood_carry() -> void:
+	_online_mood_carry.clear()
+
 
 static func feed_food(pet_id: String, consume_item: bool = true) -> bool:
 	return _consume_food_for_pet(pet_id, "food_basic", consume_item)
@@ -104,23 +122,46 @@ static func apply_online_care_decay(elapsed_seconds: int) -> void:
 	_apply_sickness_for_dirty_tank(int(GameState.get_aquarium().get("cleanliness", 0)))
 	if minutes <= 0:
 		return
-	var hunger_decay: int = max(int(GameApp.get_balance_value("hunger_decay_per_minute")), 0)
+	# Hunger falls by whole points (hunger_decay_points) every hunger_decay_interval_seconds.
+	# The partial interval is carried in _online_hunger_carry_seconds so no fraction is lost.
+	var hunger_points_per_interval: int = max(int(GameApp.get_balance_value("hunger_decay_points", 1)), 0)
+	var hunger_interval: float = maxf(float(GameApp.get_balance_value("hunger_decay_interval_seconds", 120)), 1.0)
+	var hunger_decay_by_minute: Array[int] = []
+	for _step in range(minutes):
+		_online_hunger_carry_seconds += float(seconds_per_minute)
+		var interval_count: int = int(floor(_online_hunger_carry_seconds / hunger_interval + 0.000001))
+		_online_hunger_carry_seconds = maxf(_online_hunger_carry_seconds - float(interval_count) * hunger_interval, 0.0)
+		hunger_decay_by_minute.append(interval_count * hunger_points_per_interval)
 	var hungry_max: int = max(int(GameApp.get_balance_value("hungry_hunger_max")), 0)
-	var hungry_mood_decay: int = max(int(GameApp.get_balance_value("mood_decay_hungry_per_min")), 0)
-	var starving_mood_decay: int = max(int(GameApp.get_balance_value("mood_decay_starving_per_min")), 0)
+	# Mood falls by whole points (mood_decay_*_points) every mood_decay_*_interval_seconds while hungry / starving.
+	var hungry_mood_points: int = max(int(GameApp.get_balance_value("mood_decay_hungry_points", 1)), 0)
+	var hungry_mood_interval: int = max(int(GameApp.get_balance_value("mood_decay_hungry_interval_seconds", 600)), 1)
+	var starving_mood_points: int = max(int(GameApp.get_balance_value("mood_decay_starving_points", 1)), 0)
+	var starving_mood_interval: int = max(int(GameApp.get_balance_value("mood_decay_starving_interval_seconds", 300)), 1)
 	for pet_id in GameState.get_pet_ids():
 		var pet: Dictionary = GameState.get_pet(pet_id)
 		var old_hunger: int = int(pet.get("hunger", 0))
 		var old_mood: int = int(pet.get("mood", 0))
 		var hunger: int = old_hunger
 		var mood: int = old_mood
-		for _minute in range(minutes):
-			if hunger <= 0:
-				mood = maxi(0, mood - starving_mood_decay)
-			else:
-				if hunger <= hungry_max:
-					mood = maxi(0, mood - hungry_mood_decay)
-				hunger = maxi(0, hunger - hunger_decay)
+		var mood_entry: Dictionary = _online_mood_carry.get(pet_id, {"state": 0, "carry": 0}) as Dictionary
+		var mood_state: int = int(mood_entry.get("state", 0))
+		var mood_carry: int = int(mood_entry.get("carry", 0))
+		for minute_index in range(minutes):
+			var step_state: int = 2 if hunger <= 0 else (1 if hunger <= hungry_max else 0)
+			if step_state != mood_state:
+				mood_state = step_state
+				mood_carry = 0
+			if step_state != 0:
+				var step_interval: int = starving_mood_interval if step_state == 2 else hungry_mood_interval
+				var step_points: int = starving_mood_points if step_state == 2 else hungry_mood_points
+				mood_carry += seconds_per_minute
+				var mood_intervals: int = int(floor(float(mood_carry) / float(step_interval)))
+				mood_carry -= mood_intervals * step_interval
+				mood = maxi(0, mood - mood_intervals * step_points)
+			if hunger > 0:
+				hunger = maxi(0, hunger - hunger_decay_by_minute[minute_index])
+		_online_mood_carry[pet_id] = {"state": mood_state, "carry": mood_carry}
 		pet["hunger"] = hunger
 		pet["mood"] = mood
 		if not GameState.set_pet(pet_id, pet):

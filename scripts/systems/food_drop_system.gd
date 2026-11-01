@@ -41,7 +41,10 @@ static func consume_food(token_id: String, pet_id: String, coin_position: Vector
 	var pet_data: Dictionary = CareSystem.build_fed_pet_data(pet_id, str(drop.get("item_id", "")))
 	if pet_data.is_empty():
 		return false
-	var coin_value: int = int(GameApp.get_balance_value("meal_coin_base_value")) + int(pet_data.get("stage", 1))
+	var normal_coin_value: int = int(GameApp.get_balance_value("meal_coin_base_value")) + int(pet_data.get("stage", 1))
+	var rolled: Dictionary = CoinDropSystem.roll_meal_coin(normal_coin_value)
+	var coin_value: int = int(rolled.get("value", normal_coin_value))
+	var coin_kind: String = str(rolled.get("kind", "coin"))
 	var coin_lifetime: float = maxf(float(GameApp.get_balance_value("coin_bubble_auto_collect_seconds")), 1.0)
 	var coin_drop: Dictionary = GameState.resolve_food_drop_with_coin(
 		token_id,
@@ -49,11 +52,12 @@ static func consume_food(token_id: String, pet_id: String, coin_position: Vector
 		pet_data,
 		coin_value,
 		coin_position,
-		Time.get_unix_time_from_system() + coin_lifetime
+		Time.get_unix_time_from_system() + coin_lifetime,
+		coin_kind
 	)
 	if coin_drop.is_empty():
 		return false
-	RuntimeLogger.log_info("coin from meal %s +%d by %s" % [token_id, coin_value, pet_id])
+	RuntimeLogger.log_info("%s from meal %s +%d by %s" % ["coin" if coin_kind == "coin" else coin_kind, token_id, coin_value, pet_id])
 	if not SaveManager.save_game():
 		push_warning("Food transaction resolved in memory, but the immediate save failed.")
 	return true

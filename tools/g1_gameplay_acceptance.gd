@@ -14,6 +14,7 @@ func _ready() -> void:
 
 func _run() -> void:
 	print("G1 acceptance: start")
+	CoinDropSystem.force_roll(1.0)  # G2-B-1: old meal-coin assertions expect normal coins; rare rolls are exercised explicitly in _run_g2_b1_checks.
 	_expect(SaveManager.set_save_path_for_test(ISOLATED_SAVE_PATH), "Uses a separate user:// save file")
 	SaveManager.reset_save()
 	GameApp.load_data_tables()
@@ -314,8 +315,11 @@ func _run() -> void:
 	var pet_summary_label: Label = aquarium.get_node("%PetSummaryLabel") as Label
 	var pet_growth_bar: ProgressBar = aquarium.get_node("%PetGrowthBar") as ProgressBar
 	var summary_pet: Dictionary = GameState.get_pet(GameState.get_selected_pet_id())
-	var pet_details_collapsed: bool = not bool(aquarium.get("pet_info_open")) and pet_info_button != null and pet_summary_label.text.contains(str(summary_pet.get("nickname", "")))
-	pet_details_collapsed = pet_details_collapsed and pet_summary_label.text.contains("飢餓") and pet_summary_label.text.contains("心情") and pet_growth_bar.value >= 0.0
+	# G1-FIX-28 (old -> new): the old check required the bottom summary to show "名稱｜階段｜飢餓｜心情" and a growth bar.
+	# New: the summary bar, its growth bar and the info panel are all hidden by default and carry no stat text or hit area.
+	var pet_details_collapsed: bool = not bool(aquarium.get("pet_info_open")) and pet_info_button != null and not pet_info_button.is_visible_in_tree() and pet_info_button.mouse_filter == Control.MOUSE_FILTER_IGNORE
+	pet_details_collapsed = pet_details_collapsed and not pet_summary_label.is_visible_in_tree() and not pet_growth_bar.is_visible_in_tree() and not (aquarium.get_node("%InfoExpandedPanel") as Control).is_visible_in_tree()
+	pet_details_collapsed = pet_details_collapsed and not pet_summary_label.text.contains("飢餓") and not pet_summary_label.text.contains("心情") and not pet_summary_label.text.contains("階段") and summary_pet.size() > 0
 	pet_details_collapsed = pet_details_collapsed and bottom_hud.visible and coin_label.visible and coin_label.text.begins_with("泡泡幣：")
 	pet_details_collapsed = pet_details_collapsed and not (aquarium.get_node("%StageLabel") as Control).visible and inventory_label.visible and inventory_label.text.contains("飼料 ∞")
 	_expect(pet_details_collapsed, "Aquarium starts with compact coin and inventory status while individual details stay closed")
@@ -800,9 +804,9 @@ func _run() -> void:
 	for pet_id in GameState.get_active_pet_ids():
 		more_open_position_stable = more_open_position_stable and (actors.get(pet_id) as Node2D).global_position.distance_to(more_positions_before[pet_id]) <= 0.01
 	var more_menu_complete: bool = bool(aquarium.get("more_actions_open")) and more_items.visible and not primary_actions.visible
-	more_menu_complete = more_menu_complete and more_items.get_child_count() == 7 and more_items.get_parent() == more_actions_bar
+	more_menu_complete = more_menu_complete and more_items.get_child_count() == 8 and more_items.get_parent() == more_actions_bar
 	more_menu_complete = more_menu_complete and more_items_scroll.get_child(0) == more_actions_bar and more_actions_bar.get_parent() == more_items_scroll
-	var more_menu_texts: Array[String] = ["測試加速 ×1", "返回", "清潔", "藥水", "進化", "商店", "日誌"]
+	var more_menu_texts: Array[String] = ["測試加速 ×1", "返回", "資訊", "清潔", "藥水", "進化", "商店", "日誌"]
 	for menu_node in more_items.get_children():
 		if menu_node is Button:
 			var menu_button: Button = menu_node as Button
@@ -839,6 +843,7 @@ func _run() -> void:
 		var first_row_y: float = INF
 		var time_scale_row_y: float = -1.0
 		var back_row_y: float = -2.0
+		var info_row_y: float = -3.0
 		layout_geometry_ok = layout_geometry_ok and more_items_scroll.scroll_horizontal == 0 and more_items_scroll.get_h_scroll_bar().max_value <= more_items_scroll.get_h_scroll_bar().page + 0.1
 		for menu_node in more_items.get_children():
 			if menu_node is Button and (menu_node as Button).is_visible_in_tree():
@@ -860,7 +865,9 @@ func _run() -> void:
 					time_scale_row_y = button_rect.position.y
 				if menu_button == aquarium.get_node("%BackToPrimaryButton"):
 					back_row_y = button_rect.position.y
-		layout_geometry_ok = layout_geometry_ok and absf(time_scale_row_y - first_row_y) <= 0.5 and absf(back_row_y - first_row_y) <= 0.5
+				if menu_button == aquarium.get_node("%InfoToggleButton"):
+					info_row_y = button_rect.position.y
+		layout_geometry_ok = layout_geometry_ok and absf(time_scale_row_y - first_row_y) <= 0.5 and absf(back_row_y - first_row_y) <= 0.5 and absf(info_row_y - first_row_y) <= 0.5
 		if not layout_geometry_ok:
 			print("G1 More flags: scroll_h=%s hbar=%s/%s first=%s ts=%s back=%s" % [str(more_items_scroll.scroll_horizontal), str(more_items_scroll.get_h_scroll_bar().max_value), str(more_items_scroll.get_h_scroll_bar().page), str(first_row_y), str(time_scale_row_y), str(back_row_y)])
 			print("G1 More matrix diagnostic case=%s scroll=%s menu=%s scroll_min=%s bar=%s bar_min=%s roster=%s targets=%s" % [str(layout_case["name"]), str(scroll_rect), str(more_items.get_global_rect()), str(more_items_scroll.get_combined_minimum_size()), str(more_actions_bar.size), str(more_actions_bar.get_combined_minimum_size()), str((aquarium.get_node("%PetRoster") as Control).get_global_rect()), str(more_items.get_children().map(func(node: Node) -> Rect2: return (node as Control).get_global_rect()))])
@@ -1101,27 +1108,20 @@ func _run() -> void:
 	await get_tree().process_frame
 	pet_growth_bar = aquarium.get_node("%PetGrowthBar") as ProgressBar
 	pet_info_button = aquarium.get_node("%PetInfoButton") as Button
+	var info_toggle: Button = aquarium.get_node("%InfoToggleButton") as Button
 	var last_action_by_name: Dictionary = aquarium.get("last_action_time_by_name") as Dictionary
 	last_action_by_name["pet_info"] = -999999.0
 	aquarium.set("last_action_time_by_name", last_action_by_name)
-	var growth_bar_global_rect: Rect2 = pet_growth_bar.get_global_rect()
-	var pet_info_button_hit_rect: Rect2 = pet_info_button.get_global_rect()
-	var growth_bar_hit_region_valid: bool = pet_growth_bar.get_parent().get_parent() == pet_info_button
-	var growth_bar_hit_intersection: Rect2 = pet_info_button_hit_rect.intersection(growth_bar_global_rect)
-	var growth_bar_rect_fully_inside_hit_region: bool = growth_bar_hit_intersection == growth_bar_global_rect
-	if not growth_bar_rect_fully_inside_hit_region:
-		print("G1 growth-bar rect diagnostic: bar=%s button_hit=%s intersection=%s" % [str(growth_bar_global_rect), str(pet_info_button_hit_rect), str(growth_bar_hit_intersection)])
-	growth_bar_hit_region_valid = growth_bar_hit_region_valid and growth_bar_rect_fully_inside_hit_region
-	growth_bar_hit_region_valid = growth_bar_hit_region_valid and pet_growth_bar.mouse_filter == Control.MOUSE_FILTER_PASS
-	growth_bar_hit_region_valid = growth_bar_hit_region_valid and (pet_growth_bar.get_parent() as Control).mouse_filter == Control.MOUSE_FILTER_PASS
-	growth_bar_hit_region_valid = growth_bar_hit_region_valid and (pet_growth_bar.get_parent().get_node("PetSummaryLabel") as Control).mouse_filter == Control.MOUSE_FILTER_PASS
-	growth_bar_hit_region_valid = growth_bar_hit_region_valid and pet_info_button.is_visible_in_tree() and not pet_info_button.disabled
-	growth_bar_hit_region_valid = growth_bar_hit_region_valid and pet_info_button.pressed.is_connected(Callable(aquarium, "_on_pet_info_toggle_pressed"))
+	# G1-FIX-28 (old -> new): the old check proved the growth bar sat inside a connected, always-visible summary button that opened the panel.
+	# New: the summary button/bar are hidden, ignore input and are no longer connected; the only connected entry is More -> 資訊.
+	var growth_bar_hit_region_valid: bool = not pet_info_button.is_visible_in_tree() and not pet_growth_bar.is_visible_in_tree() and pet_info_button.mouse_filter == Control.MOUSE_FILTER_IGNORE
+	growth_bar_hit_region_valid = growth_bar_hit_region_valid and not pet_info_button.pressed.is_connected(Callable(aquarium, "_on_pet_info_toggle_pressed"))
+	growth_bar_hit_region_valid = growth_bar_hit_region_valid and info_toggle.pressed.is_connected(Callable(aquarium, "_on_pet_info_toggle_pressed")) and not info_toggle.disabled
 	var hud_food_count_before_growth_tap: int = GameState.get_food_drops().size()
-	pet_info_button.pressed.emit()
-	var growth_bar_activation_opened_info: bool = bool(aquarium.get("pet_info_open"))
+	info_toggle.pressed.emit()
+	var growth_bar_activation_opened_info: bool = bool(aquarium.get("pet_info_open")) and (aquarium.get_node("%InfoExpandedPanel") as Control).visible
 	var growth_bar_activation_did_not_drop_food: bool = GameState.get_food_drops().size() == hud_food_count_before_growth_tap
-	_expect(growth_bar_hit_region_valid and growth_bar_activation_opened_info and growth_bar_activation_did_not_drop_food, "PetGrowthBar hit region is inside a connected information button that opens without creating food")
+	_expect(growth_bar_hit_region_valid and growth_bar_activation_opened_info and growth_bar_activation_did_not_drop_food, "G1-FIX-28: the hidden summary/growth bar has no hit region; the connected More -> 資訊 button opens information without creating food")
 	aquarium.call("_set_pet_info_open", false)
 	var eviction_pet_id: String = GameState.get_active_pet_ids()[0]
 	var eviction_actor: Node2D = actors.get(eviction_pet_id) as Node2D
@@ -1299,8 +1299,13 @@ func _run() -> void:
 	ui27_summary_actions["pet_info"] = -999999.0
 	aquarium.set("last_action_time_by_name", ui27_summary_actions)
 	var ui27_open_before_summary: bool = bool(aquarium.get("pet_info_open"))
-	(aquarium.get_node("%PetInfoButton") as Button).pressed.emit()
-	_expect(not ui27_open_before_summary and bool(aquarium.get("pet_info_open")) and (aquarium.get_node("%InfoExpandedPanel") as Control).visible and GameState.get_selected_pet_id() == selected_id, "R-UI27-1 (4): only the explicit bottom summary/info entry opens the compact panel")
+	# G1-FIX-28 (old -> new): the old step pressed the always-visible bottom summary; now the only entry is More -> 資訊.
+	if not bool(aquarium.get("more_actions_open")):
+		ui27_summary_actions["more"] = -999999.0
+		aquarium.set("last_action_time_by_name", ui27_summary_actions)
+		(aquarium.get_node("%MoreButton") as Button).pressed.emit()
+	(aquarium.get_node("%InfoToggleButton") as Button).pressed.emit()
+	_expect(not ui27_open_before_summary and bool(aquarium.get("pet_info_open")) and (aquarium.get_node("%InfoExpandedPanel") as Control).visible and GameState.get_selected_pet_id() == selected_id, "R-UI27-1 (4) / G1-FIX-28: only the explicit More -> 資訊 entry opens the compact panel")
 	var ui27_panel_rect: Rect2 = (aquarium.get_node("%InfoExpandedPanel") as Control).get_global_rect()
 	var ui27_water: Rect2 = aquarium.get("active_water_rect")
 	var ui27_blank: Vector2 = Vector2(-1.0, -1.0)
@@ -1321,6 +1326,7 @@ func _run() -> void:
 	var ui27_no_blocker: bool = ui27_blank.x >= 0.0 and not bool(aquarium.get("pet_info_open")) and not (aquarium.get_node("%InfoExpandedPanel") as Control).is_visible_in_tree() and not bool(aquarium.call("_is_info_panel_opaque")) and GameState.get_food_drops().size() == ui27_food_before
 	ui27_no_blocker = ui27_no_blocker and (not ui27_water.has_point(ui27_old_point) or bool(aquarium.call("_is_visible_water_point", ui27_old_point))) and ui27_actor.global_position.distance_to(ui27_pos_before) <= 0.5
 	_expect(ui27_no_blocker, "R-UI27-1 (5): tapping blank water closes the panel without dropping food or moving the pet, and leaves no click-intercepting area where it was")
+	await _run_g1_fix_28_info_visibility_checks(aquarium, aquarium_scene, ui27_blank, ui27_panel_rect, selected_id)
 	print("G1 acceptance: before roster/rename")
 	var nickname_edit: LineEdit = aquarium.get_node("%NicknameEdit") as LineEdit
 	var rename_button: Button = aquarium.get_node("%RenameButton") as Button
@@ -1981,11 +1987,299 @@ func _run() -> void:
 	_expect(GameState.get_currency("bubble_coin") == coin_before_auto + 2, "Expired restored coin auto-collects once")
 	_expect(not _coin_drop_is_pending(pending_coin_token), "Auto-collection settles and removes the coin ledger entry")
 	print("G1 acceptance: auto coin settlement done")
+	await _run_g2_b1_checks(aquarium_scene, aquarium)
+	print("G1 acceptance: G2-B-1 meal pacing and pearl/diamond checks done")
 	SaveManager.reset_save()
 	SaveManager.use_production_save_path()
-	aquarium.queue_free()
+	if is_instance_valid(aquarium):
+		aquarium.queue_free()
 	await get_tree().process_frame
 	_finish()
+
+
+func _g2_feed_one_meal(pet_id: String) -> Dictionary:
+	var drop: Dictionary = FoodDropSystem.drop_food(Vector2(300.0, 300.0))
+	if drop.is_empty():
+		return {}
+	var token: String = str(drop.get("token_id", ""))
+	if not FoodDropSystem.consume_food(token, pet_id, Vector2(300.0, 300.0)):
+		GameState.resolve_food_drop(token)
+		return {}
+	return CoinDropSystem.get_meal_coin_drop(token)
+
+
+func _g2_expected_kind(roll: float) -> String:
+	var diamond_chance: float = float(GameApp.get_balance_value("diamond_drop_chance"))
+	var pearl_chance: float = float(GameApp.get_balance_value("pearl_drop_chance"))
+	if roll < diamond_chance:
+		return "diamond"
+	if roll < diamond_chance + pearl_chance:
+		return "pearl"
+	return "coin"
+
+
+func _run_g2_b1_checks(aquarium_scene: PackedScene, old_aquarium: Control) -> void:
+	# --- fixture: new game, three real hatched pets (start hunger comes from data) ---
+	old_aquarium.queue_free()
+	await get_tree().process_frame
+	GameApp.load_data_tables()  # earlier G1 sections edit the in-memory balance table; restore the data files first.
+	CoinDropSystem.force_roll(1.0)
+	CareSystem.reset_online_hunger_carry()
+	TimeManager.set_time_scale(1)
+	SaveManager.reset_save()
+	GameState.reset_to_default()
+	EggSystem.ensure_starter_eggs()
+	for egg in GameState.get_nursery_eggs():
+		for _tap in range(int(egg.get("required_clicks", 10))):
+			HatchSystem.tap_egg(str(egg.get("egg_id", "")))
+	var pet_ids: Array[String] = GameState.get_active_pet_ids()
+	_expect(pet_ids.size() == 3, "G2-B-1 fixture hatches three real pets")
+	var max_hunger: int = int(GameApp.get_balance_value("max_hunger"))
+	var hungry_max: int = int(GameApp.get_balance_value("hungry_hunger_max"))
+	var decay_points: int = int(GameApp.get_balance_value("hunger_decay_points"))
+	var decay_interval: int = int(GameApp.get_balance_value("hunger_decay_interval_seconds"))
+	var food_add: int = int(GameApp.get_table("items").get("food_basic", {}).get("hunger_add", 0))
+	var base_value: int = int(GameApp.get_balance_value("meal_coin_base_value"))
+
+	# --- (2) starting satiety 40 and an immediate first round ---
+	var all_start_40: bool = true
+	var all_accept_first_meal: bool = true
+	for pet_id in pet_ids:
+		all_start_40 = all_start_40 and int(GameState.get_pet(pet_id).get("hunger", -1)) == 40
+		all_accept_first_meal = all_accept_first_meal and not CareSystem.is_food_refused(GameState.get_pet(pet_id))
+	_expect(all_start_40, "G2-B-1 (2) newly hatched pets start at satiety 40 (wants to eat), mood unchanged at 70")
+	_expect(int(GameState.get_pet(pet_ids[0]).get("mood", -1)) == 70 and all_accept_first_meal and food_add == 20, "G2-B-1 (2) a pet at the starting satiety is not refused and food_basic restores 20")
+	var round_coin_total: int = 0
+	var round_meals: int = 0
+	var round_refused_fourth: bool = true
+	for pet_id in pet_ids:
+		for _meal in range(3):
+			var meal_drop: Dictionary = _g2_feed_one_meal(pet_id)
+			if not meal_drop.is_empty():
+				round_meals += 1
+				round_coin_total += int(meal_drop.get("value", 0))
+		round_refused_fourth = round_refused_fourth and _g2_feed_one_meal(pet_id).is_empty() and int(GameState.get_pet(pet_id).get("hunger", -1)) == max_hunger
+	_expect(round_meals == 9 and round_refused_fourth, "G2-B-1 (2) the first round is three meals per pet (40->60->80->100) and a fourth meal is refused")
+	_expect(round_coin_total == 9 * (base_value + 1), "G2-B-1 (2) with the rarity roll forced to normal, the round pays 9 x (base + stage 1) normal coins")
+
+	# --- (1) two-hour satiety curve: online x1, x60, ten-minute chunks, offline ---
+	var two_hours: int = 7200
+	var curve_ok: bool = true
+	for pet_id in pet_ids:
+		var curve_pet: Dictionary = GameState.get_pet(pet_id)
+		curve_pet["hunger"] = max_hunger
+		curve_pet["mood"] = 100
+		GameState.set_pet(pet_id, curve_pet)
+	CareSystem.reset_online_hunger_carry()
+	for _minute in range(two_hours / 60):
+		CareSystem.apply_online_care_decay(60)
+	for pet_id in pet_ids:
+		curve_ok = curve_ok and int(GameState.get_pet(pet_id).get("hunger", -1)) == hungry_max
+	_expect(curve_ok and (max_hunger - hungry_max) * decay_interval / decay_points == two_hours, "G2-B-1 (1) x1: 120 one-minute ticks take satiety 100 to the wants-to-eat line 40 (about 2 hours)")
+	for pet_id in pet_ids:
+		var curve_pet2: Dictionary = GameState.get_pet(pet_id)
+		curve_pet2["hunger"] = max_hunger
+		GameState.set_pet(pet_id, curve_pet2)
+	CareSystem.reset_online_hunger_carry()
+	TimeManager.set_time_scale(60)
+	var scaled_seconds: int = int(TimeManager.scale_delta(120.0))
+	CareSystem.apply_online_care_decay(scaled_seconds)
+	TimeManager.set_time_scale(1)
+	var scaled_ok: bool = scaled_seconds == two_hours
+	for pet_id in pet_ids:
+		scaled_ok = scaled_ok and int(GameState.get_pet(pet_id).get("hunger", -1)) == hungry_max
+	_expect(scaled_ok, "G2-B-1 (1) x60: two real minutes (7200 scaled seconds) take satiety 100 to 40")
+	for pet_id in pet_ids:
+		var curve_pet3: Dictionary = GameState.get_pet(pet_id)
+		curve_pet3["hunger"] = max_hunger
+		GameState.set_pet(pet_id, curve_pet3)
+	CareSystem.reset_online_hunger_carry()
+	for _chunk in range(12):
+		CareSystem.apply_online_care_decay(600)
+	var chunk_ok: bool = true
+	for pet_id in pet_ids:
+		chunk_ok = chunk_ok and int(GameState.get_pet(pet_id).get("hunger", -1)) == hungry_max
+	_expect(chunk_ok, "G2-B-1 (1) x10 equivalent: twelve 600-second chunks (10x of 60 real seconds each) take satiety 100 to 40")
+	CareSystem.reset_online_hunger_carry()
+	var odd_ok: bool = true
+	for pet_id in pet_ids:
+		var odd_pet: Dictionary = GameState.get_pet(pet_id)
+		odd_pet["hunger"] = max_hunger
+		GameState.set_pet(pet_id, odd_pet)
+	for _odd in range(3):
+		CareSystem.apply_online_care_decay(60)
+	for pet_id in pet_ids:
+		odd_ok = odd_ok and int(GameState.get_pet(pet_id).get("hunger", -1)) == max_hunger - 1
+	_expect(odd_ok, "G2-B-1 (1) three one-minute ticks lose exactly one whole point (the half-point carry is kept, not truncated to 0)")
+	for pet_id in pet_ids:
+		var offline_pet: Dictionary = GameState.get_pet(pet_id)
+		offline_pet["hunger"] = max_hunger
+		offline_pet["mood"] = 100
+		GameState.set_pet(pet_id, offline_pet)
+	CareSystem.apply_offline_care_decay(two_hours)
+	var offline_two_hours_ok: bool = true
+	for pet_id in pet_ids:
+		offline_two_hours_ok = offline_two_hours_ok and int(GameState.get_pet(pet_id).get("hunger", -1)) == hungry_max
+	_expect(offline_two_hours_ok, "G2-B-1 (1) offline: a two-hour absence takes satiety 100 to 40 at the same rate")
+	CareSystem.apply_offline_care_decay(10 * 3600)
+	var offline_floor: int = int(GameApp.get_balance_value("offline_hunger_floor"))
+	var offline_floor_ok: bool = true
+	for pet_id in pet_ids:
+		offline_floor_ok = offline_floor_ok and int(GameState.get_pet(pet_id).get("hunger", -1)) == offline_floor
+	_expect(offline_floor_ok, "G2-B-1 (1) offline: a long absence stops at the configured offline hunger floor")
+	var species_rate: float = float(GameApp.get_table("species").get("normal_jellycat", {}).get("hunger_decay_per_day", -1.0))
+	_expect(is_equal_approx(species_rate, float(decay_points) * 86400.0 / float(decay_interval)), "G2-B-1 (1) offline species decay per day equals the online points-per-interval rate")
+
+	# --- (3) expected value of a round, deterministic seed regression, large-sample probability bands ---
+	var pearl_chance: float = float(GameApp.get_balance_value("pearl_drop_chance"))
+	var diamond_chance: float = float(GameApp.get_balance_value("diamond_drop_chance"))
+	var pearl_value: int = int(GameApp.get_balance_value("pearl_coin_value"))
+	var diamond_value: int = int(GameApp.get_balance_value("diamond_coin_value"))
+	var normal_value: int = base_value + 1
+	var expected_per_meal: float = (1.0 - pearl_chance - diamond_chance) * float(normal_value) + pearl_chance * float(pearl_value) + diamond_chance * float(diamond_value)
+	_expect(is_equal_approx(pearl_chance, 0.08) and is_equal_approx(diamond_chance, 0.02) and pearl_value == 15 and diamond_value == 30, "G2-B-1 (3) data holds pearl 8% / 15 and diamond 2% / 30")
+	_expect(is_equal_approx(expected_per_meal * 9.0, 40.5), "G2-B-1 (3) the analytic expectation of one round (3 pets x 3 meals, stage 1) is 40.5")
+	var sample_rng: RandomNumberGenerator = RandomNumberGenerator.new()
+	sample_rng.seed = 20261031
+	var sample_size: int = 40000
+	var pearls: int = 0
+	var diamonds: int = 0
+	var sample_value_total: int = 0
+	for _sample in range(sample_size):
+		var rolled: Dictionary = CoinDropSystem.roll_meal_coin(normal_value, sample_rng.randf())
+		sample_value_total += int(rolled.get("value", 0))
+		if str(rolled.get("kind", "")) == "pearl":
+			pearls += 1
+		elif str(rolled.get("kind", "")) == "diamond":
+			diamonds += 1
+	var pearl_rate: float = float(pearls) / float(sample_size)
+	var diamond_rate: float = float(diamonds) / float(sample_size)
+	var sample_round_mean: float = float(sample_value_total) / float(sample_size) * 9.0
+	print("G2_B1_SAMPLE n=%d pearl_rate=%.4f diamond_rate=%.4f round_mean=%.3f" % [sample_size, pearl_rate, diamond_rate, sample_round_mean])
+	_expect(absf(pearl_rate - 0.08) < 0.01 and absf(diamond_rate - 0.02) < 0.006, "G2-B-1 (3) 40000 rolls land pearls near 8% and diamonds near 2%")
+	_expect(absf(sample_round_mean - 40.5) < 1.5, "G2-B-1 (3) the sampled one-round mean is close to 40.5")
+	# deterministic regression with the injectable seed through the real settlement path
+	CoinDropSystem.seed_rng(777)
+	var mirror_rng: RandomNumberGenerator = RandomNumberGenerator.new()
+	mirror_rng.seed = 777
+	var seeded_ok: bool = true
+	var seeded_kinds: Array[String] = []
+	for index in range(12):
+		var seeded_pet: String = pet_ids[index % pet_ids.size()]
+		var seeded_state: Dictionary = GameState.get_pet(seeded_pet)
+		seeded_state["hunger"] = hungry_max
+		GameState.set_pet(seeded_pet, seeded_state)
+		var expected_roll: float = mirror_rng.randf()
+		var seeded_drop: Dictionary = _g2_feed_one_meal(seeded_pet)
+		var expected_kind: String = _g2_expected_kind(expected_roll)
+		var expected_value: int = normal_value if expected_kind == "coin" else (pearl_value if expected_kind == "pearl" else diamond_value)
+		seeded_kinds.append(str(seeded_drop.get("kind", "?")))
+		seeded_ok = seeded_ok and str(seeded_drop.get("kind", "")) == expected_kind and int(seeded_drop.get("value", 0)) == expected_value and int(seeded_drop.get("value", 0)) > 0
+	_expect(seeded_ok, "G2-B-1 (3) a seeded RNG reproduces exactly the expected kind and value for twelve real meals (%s)" % ",".join(seeded_kinds))
+
+	# --- (4) pearl / diamond settle once, never twice, and survive a restart ---
+	for kind_case in [["diamond", 0.0, diamond_value], ["pearl", 0.05, pearl_value]]:
+		var case_kind: String = str(kind_case[0])
+		CoinDropSystem.force_roll(float(kind_case[1]))
+		var case_pet: String = pet_ids[0]
+		var case_state: Dictionary = GameState.get_pet(case_pet)
+		case_state["hunger"] = hungry_max
+		GameState.set_pet(case_pet, case_state)
+		var wallet_before: int = GameState.get_currency("bubble_coin")
+		var case_drop: Dictionary = _g2_feed_one_meal(case_pet)
+		var case_token: String = str(case_drop.get("token_id", ""))
+		_expect(str(case_drop.get("kind", "")) == case_kind and int(case_drop.get("value", 0)) == int(kind_case[2]) and GameState.get_currency("bubble_coin") == wallet_before, "G2-B-1 (4) a %s drop is reserved with its data value and is not credited until collected" % case_kind)
+		_expect(SaveManager.save_game(), "G2-B-1 (4) the %s drop saves" % case_kind)
+		GameState.reset_to_default()
+		_expect(SaveManager.load_game(), "G2-B-1 (4) the %s drop reloads" % case_kind)
+		var reloaded: Dictionary = CoinDropSystem.get_meal_coin_drop(str(case_drop.get("food_token_id", "")))
+		_expect(str(reloaded.get("token_id", "")) == case_token and str(reloaded.get("kind", "")) == case_kind and int(reloaded.get("value", 0)) == int(kind_case[2]) and GameState.get_currency("bubble_coin") == wallet_before, "G2-B-1 (4) the reloaded %s drop keeps token, kind and value with the wallet untouched" % case_kind)
+		var restored_aquarium: Control = aquarium_scene.instantiate() as Control
+		get_tree().root.add_child(restored_aquarium)
+		await get_tree().process_frame
+		var restored_bubbles: Dictionary = restored_aquarium.get("coin_bubbles_by_id") as Dictionary
+		var restored_bubble: Button = restored_bubbles.get(case_token) as Button
+		var tint_ok: bool = is_instance_valid(restored_bubble) and str(restored_bubble.get_meta("coin_kind", "")) == case_kind
+		if tint_ok:
+			tint_ok = restored_bubble.modulate != Color.WHITE and restored_bubble.modulate.a == 1.0
+		_expect(tint_ok, "G2-B-1 (4) the restored %s bubble is shown beside the pet with a distinct placeholder tint" % case_kind)
+		if is_instance_valid(restored_bubble):
+			restored_bubble.call("collect", false)
+		await get_tree().process_frame
+		var message_text: String = (restored_aquarium.get("message_label") as Label).text
+		var credited: int = GameState.get_currency("bubble_coin")
+		_expect(credited == wallet_before + int(kind_case[2]) and message_text.contains("+%d" % int(kind_case[2])) and message_text.contains("珍珠" if case_kind == "pearl" else "鑽石"), "G2-B-1 (4) collecting the %s credits +%d once and shows the +%d message" % [case_kind, int(kind_case[2]), int(kind_case[2])])
+		_expect(CoinDropSystem.collect_coin(case_token, false).is_empty() and GameState.get_currency("bubble_coin") == credited, "G2-B-1 (4) replaying the settled %s token adds nothing" % case_kind)
+		_expect(SaveManager.save_game() and SaveManager.save_game(true), "G2-B-1 (4) main save and backups refresh after the %s settlement" % case_kind)
+		GameState.reset_to_default()
+		_expect(SaveManager.load_game() and CoinDropSystem.get_meal_coin_drop(str(case_drop.get("food_token_id", ""))).is_empty() and GameState.get_currency("bubble_coin") == credited, "G2-B-1 (4) the settled %s stays credited once after restart with no bubble" % case_kind)
+		restored_aquarium.queue_free()
+		await get_tree().process_frame
+	# malformed kind never grants extra value
+	CoinDropSystem.force_roll(1.0)
+	var malformed_state: Dictionary = GameState.to_save_dict().duplicate(true)
+	var malformed_pet: String = pet_ids[0]
+	var malformed_aquarium: Dictionary = malformed_state["aquarium"] as Dictionary
+	malformed_aquarium["coin_drops"] = [{"token_id": "coin_00009001", "source_pet_id": malformed_pet, "value": 3, "x": 10.0, "y": 10.0, "expires_at": Time.get_unix_time_from_system() + 600.0, "source": "meal", "food_token_id": "food_x", "kind": "gold"}]
+	_expect(GameState.set_data(malformed_state) and GameState.get_coin_drops().size() == 1 and CoinDropSystem.normalize_kind(GameState.get_coin_drops()[0].get("kind", "")) == "coin" and int(GameState.get_coin_drops()[0].get("value", 0)) == 3, "G2-B-1 (4) an unknown drop kind normalizes to a plain coin and keeps its validated value")
+	var bad_value_state: Dictionary = malformed_state.duplicate(true)
+	((bad_value_state["aquarium"] as Dictionary)["coin_drops"] as Array)[0]["value"] = -15
+	_expect(not GameState.set_data(bad_value_state), "G2-B-1 (4) a pearl-style drop with an invalid value is still rejected by the existing validation")
+
+	# --- (5) passive coins: 30 minutes at x1, x60, and offline ---
+	var passive_interval: int = int(GameApp.get_balance_value("passive_coin_interval_seconds"))
+	var passive_amount: int = int(GameApp.get_balance_value("passive_coin_amount"))
+	_expect(passive_interval == 1800, "G2-B-1 (5) the passive coin interval is 1800 seconds (30 minutes)")
+	for pet_id in pet_ids:
+		var passive_state: Dictionary = GameState.get_pet(pet_id)
+		passive_state["hunger"] = max_hunger
+		passive_state["mood"] = int(GameApp.get_balance_value("passive_coin_mood_threshold"))
+		passive_state["health"] = "healthy"
+		GameState.set_pet(pet_id, passive_state)
+	var eligible_total: int = CoinDropSystem.get_eligible_pet_ids().size()
+	_expect(eligible_total == 3 and CurrencySystem.calculate_passive_income(passive_interval - 1) == 0 and CurrencySystem.calculate_passive_income(passive_interval) == 3 * passive_amount, "G2-B-1 (5) three eligible pets earn one coin each only after 1800 seconds")
+	TimeManager.set_time_scale(60)
+	_expect(TimeManager.scale_delta(30.0) >= float(passive_interval) and TimeManager.scale_delta(29.0) < float(passive_interval), "G2-B-1 (5) at x60, 30 real seconds equal one passive interval")
+	TimeManager.set_time_scale(1)
+	_expect(CurrencySystem.calculate_offline_income(14400) == 4 * 3 * passive_amount and CurrencySystem.calculate_offline_income(40000) == 4 * 3 * passive_amount and CurrencySystem.calculate_offline_income(3599) == 0, "G2-B-1 (5) offline passive income keeps half speed and the 4-hour cap (4 ticks per pet)")
+	var passive_aquarium: Control = aquarium_scene.instantiate() as Control
+	get_tree().root.add_child(passive_aquarium)
+	await get_tree().process_frame
+	for stale_drop in GameState.get_coin_drops():
+		GameState.cancel_coin_drop(str(stale_drop.get("token_id", "")))
+	var passive_drops_before: int = GameState.get_coin_drops().size()
+	passive_aquarium.set("passive_timer", float(passive_interval) - 0.05)
+	await get_tree().create_timer(0.4).timeout
+	var passive_new_drops: Array[Dictionary] = GameState.get_coin_drops()
+	var passive_values_ok: bool = passive_new_drops.size() - passive_drops_before == 3
+	for passive_drop in passive_new_drops:
+		passive_values_ok = passive_values_ok and int(passive_drop.get("value", 0)) == passive_amount
+	_expect(passive_values_ok, "G2-B-1 (5) the Aquarium spawns one passive coin bubble per eligible pet when its 1800-second timer elapses")
+	passive_aquarium.queue_free()
+	await get_tree().process_frame
+
+	# --- (6) an old (pre-G2-B-1) save keeps its behavior ---
+	GameState.reset_to_default()
+	EggSystem.ensure_starter_eggs()
+	for egg in GameState.get_nursery_eggs():
+		for _tap in range(int(egg.get("required_clicks", 10))):
+			HatchSystem.tap_egg(str(egg.get("egg_id", "")))
+	var old_pet_id: String = GameState.get_active_pet_ids()[0]
+	var old_state: Dictionary = GameState.to_save_dict().duplicate(true)
+	var old_pets: Dictionary = old_state["pets"] as Dictionary
+	(old_pets[old_pet_id] as Dictionary)["hunger"] = 80
+	((old_state["aquarium"] as Dictionary))["coin_drops"] = [{"token_id": "coin_00000042", "source_pet_id": old_pet_id, "value": 3, "x": 100.0, "y": 100.0, "expires_at": Time.get_unix_time_from_system() + 600.0, "source": "meal", "food_token_id": "food_00000042"}]
+	(old_state["currency"] as Dictionary)["bubble_coin"] = 77
+	var old_inventory_before: Dictionary = (old_state["inventory"] as Dictionary).duplicate(true)
+	_expect(GameState.set_data(old_state), "G2-B-1 (6) an old-format save (no drop kind, satiety 80, wallet 77) loads")
+	var loaded_old_drop: Dictionary = GameState.get_coin_drops()[0] if not GameState.get_coin_drops().is_empty() else {}
+	_expect(int(GameState.get_pet(old_pet_id).get("hunger", -1)) == 80 and GameState.get_currency("bubble_coin") == 77 and (GameState.get_pet(old_pet_id).get("mood", -1) == 70), "G2-B-1 (6) loading does not rewrite satiety to 40, refund, or add coins")
+	_expect(CoinDropSystem.normalize_kind(loaded_old_drop.get("kind", "coin")) == "coin" and int(loaded_old_drop.get("value", 0)) == 3 and GameState.get_inventory_count("food_basic") == int(old_inventory_before.get("food_basic", -1)), "G2-B-1 (6) an old kind-less drop is a plain coin of its stored value and the inventory is unchanged")
+	var old_collected: Dictionary = CoinDropSystem.collect_coin("coin_00000042", false)
+	_expect(not old_collected.is_empty() and GameState.get_currency("bubble_coin") == 80 and CoinDropSystem.collect_coin("coin_00000042", false).is_empty() and GameState.get_currency("bubble_coin") == 80, "G2-B-1 (6) the old drop is credited exactly once (+3)")
+	CoinDropSystem.use_system_rng()
+	CoinDropSystem.force_roll(1.0)
+	TimeManager.set_time_scale(1)
 
 
 func _run_ten_food_drop_cap_restart_cleanup(aquarium: Control) -> void:
@@ -2135,10 +2429,12 @@ func _run_full_food_fairness_case(aquarium: Control, actor_anchor: Node2D, actor
 			actor.call("refresh_pet")
 	aquarium.call("_update_hunger_bubbles")
 	var hungry_bubbles: Dictionary = aquarium.get("hunger_bubbles_by_id") as Dictionary
-	var wants_to_eat_visible_before_meal: bool = int(GameState.get_pet(hungry_pet_id).get("hunger", -1)) == 35
+	# G2-B-1 old->new: fixed 35 -> hungry_hunger_max - hunger_add (20); the meal now lands on hungry_hunger_max (40) as before.
+	var hungry_start_hunger: int = int(GameApp.get_balance_value("hungry_hunger_max")) - int(GameApp.get_table("items").get("food_basic", {}).get("hunger_add", 0))
+	var wants_to_eat_visible_before_meal: bool = int(GameState.get_pet(hungry_pet_id).get("hunger", -1)) == hungry_start_hunger and hungry_start_hunger == 20
 	var hungry_bubble_before_meal: Control = hungry_bubbles.get(hungry_pet_id) as Control
 	wants_to_eat_visible_before_meal = wants_to_eat_visible_before_meal and is_instance_valid(hungry_bubble_before_meal) and hungry_bubble_before_meal.visible
-	_expect(wants_to_eat_visible_before_meal, "A pet at 35 hunger shows its wants-to-eat bubble before the 35-to-40 meal")
+	_expect(wants_to_eat_visible_before_meal, "A pet at 20 hunger shows its wants-to-eat bubble before the 20-to-40 meal")
 	var ready_wait: float = 0.0
 	while ready_wait < 3.0:
 		var hungry_actor_ready: Node2D = actors.get(hungry_pet_id) as Node2D
@@ -2188,7 +2484,7 @@ func _run_full_food_fairness_case(aquarium: Control, actor_anchor: Node2D, actor
 	var hungry_bubble_after_meal: Control = (aquarium.get("hunger_bubbles_by_id") as Dictionary).get(hungry_pet_id) as Control
 	var wants_to_eat_hidden_at_40: bool = not is_instance_valid(hungry_bubble_after_meal) or not hungry_bubble_after_meal.visible
 	_expect(GameState.get_food_drops().is_empty(), "Hungry pet settles its token once")
-	_expect(hungry_hunger_before == 35 and int(hungry_after.get("hunger", 0)) == 40 and int(hungry_after.get("growth_exp", 0)) == hungry_exp_before + expected_exp, "Hungry pet receives one 35-to-40 meal and its configured EXP")
+	_expect(hungry_hunger_before == hungry_start_hunger and hungry_start_hunger == 20 and int(hungry_after.get("hunger", 0)) == 40 and int(hungry_after.get("growth_exp", 0)) == hungry_exp_before + expected_exp, "Hungry pet receives one 20-to-40 meal and its configured EXP")
 	_expect(int(full_after.get("hunger", 0)) == int(GameApp.get_balance_value("max_hunger")) and int(full_after.get("growth_exp", 0)) == full_exp_before, "Full pet refusal grants no hunger or growth reward")
 	_expect(GameState.get_inventory_count("food_basic") == food_quantity_before, "Hungry meal and full refusal leave the legacy quantity unchanged")
 	_expect(wants_to_eat_hidden_at_40, "Eating immediately removes the wants-to-eat bubble even when hunger remains 40")
@@ -3082,6 +3378,134 @@ func _has_integer_physical_edges(art_rect: Rect2, output_scale: Vector2) -> bool
 		if not is_equal_approx(edge, roundf(edge)):
 			return false
 	return true
+
+
+func _f28_info_fully_hidden(aquarium: Control) -> bool:
+	var panel: Control = aquarium.get_node("%InfoExpandedPanel") as Control
+	var ok: bool = not bool(aquarium.get("pet_info_open")) and not bool(aquarium.get("pet_detail_open"))
+	ok = ok and not panel.is_visible_in_tree()
+	for hidden_name in ["%PetInfoButton", "%PetSummaryLabel", "%PetGrowthBar", "%HungerLabel", "%MoodLabel", "%ExpLabel", "%HealthLabel", "%CleanlinessLabel", "%StageLabel", "%TouchExpLabel", "%HungerBar", "%MoodBar", "%GrowthExpBar", "%CleanBar", "%PetNameLabel"]:
+		ok = ok and not (aquarium.get_node(hidden_name) as Control).is_visible_in_tree()
+	return ok
+
+
+func _f28_press_info_toggle(aquarium: Control) -> void:
+	var actions: Dictionary = aquarium.get("last_action_time_by_name") as Dictionary
+	actions["pet_info"] = -999999.0
+	aquarium.set("last_action_time_by_name", actions)
+	(aquarium.get_node("%InfoToggleButton") as Button).pressed.emit()
+
+
+func _run_g1_fix_28_info_visibility_checks(aquarium: Control, aquarium_scene: PackedScene, blank_point: Vector2, old_panel_rect: Rect2, selected_id: String) -> void:
+	# G1-FIX-28 new assertions (1)-(5). The pet info/status bar is hidden unless More -> 資訊 is pressed.
+	var actors: Dictionary = aquarium.get("actors_by_id") as Dictionary
+	var toggle: Button = aquarium.get_node("%InfoToggleButton") as Button
+	var panel: Control = aquarium.get_node("%InfoExpandedPanel") as Control
+	var more_button_f28: Button = aquarium.get_node("%MoreButton") as Button
+	var actions: Dictionary = aquarium.get("last_action_time_by_name") as Dictionary
+	# (1) default and after game events: nothing is visible and nothing opens the information automatically.
+	_expect(_f28_info_fully_hidden(aquarium), "G1-FIX-28 (1): after selecting/touching a pet and closing the panel, no status bar or info window is visible")
+	var roster_ids: Array[String] = GameState.get_active_pet_ids()
+	actions["pet_select"] = -999999.0
+	aquarium.set("last_action_time_by_name", actions)
+	aquarium.call("_on_pet_roster_pressed", roster_ids[1])
+	await get_tree().process_frame
+	_expect(_f28_info_fully_hidden(aquarium) and GameState.get_selected_pet_id() == roster_ids[1], "G1-FIX-28 (1): selecting a pet from the nameplate roster (select + touch) leaves information hidden")
+	var food_before: int = GameState.get_food_drops().size()
+	var blank_tap: InputEventScreenTouch = InputEventScreenTouch.new()
+	blank_tap.pressed = true
+	blank_tap.position = blank_point
+	aquarium.call("_unhandled_input", blank_tap)
+	await get_tree().process_frame
+	var feed_added: bool = GameState.get_food_drops().size() == food_before + 1
+	_expect(feed_added and _f28_info_fully_hidden(aquarium), "G1-FIX-28 (1): dropping food on blank water leaves information hidden")
+	for drop in GameState.get_food_drops():
+		GameState.resolve_food_drop(str((drop as Dictionary).get("token_id", "")))
+	SaveManager.save_game()
+	var controller_source: String = FileAccess.get_file_as_string("res://scripts/controllers/aquarium_controller.gd")
+	_expect(not controller_source.contains("_set_pet_info_open(true") and controller_source.count("_set_pet_info_open(not pet_info_open)") == 1, "G1-FIX-28 (1): the only code path that opens information is the explicit toggle (no feed/touch/hatch/evolve/select path opens it)")
+	# (2) More -> 資訊 opens and closes; Back unwinds detail -> compact -> closed -> More.
+	actions["more"] = -999999.0
+	aquarium.set("last_action_time_by_name", actions)
+	if not bool(aquarium.get("more_actions_open")):
+		more_button_f28.pressed.emit()
+	await get_tree().process_frame
+	var water_before: Rect2 = aquarium.get("active_water_rect")
+	var positions_before: Dictionary = {}
+	for pet_id in roster_ids:
+		positions_before[pet_id] = (actors.get(pet_id) as Node2D).global_position
+	_f28_press_info_toggle(aquarium)
+	await get_tree().process_frame
+	_expect(bool(aquarium.get("pet_info_open")) and panel.visible and toggle.button_pressed and (aquarium.get_node("%PetNameLabel") as Control).is_visible_in_tree() and (aquarium.get_node("%HungerLabel") as Control).is_visible_in_tree(), "G1-FIX-28 (2): More -> 資訊 shows the selected pet's compact information")
+	_f28_press_info_toggle(aquarium)
+	await get_tree().process_frame
+	_expect(_f28_info_fully_hidden(aquarium) and not toggle.button_pressed and bool(aquarium.get("more_actions_open")), "G1-FIX-28 (2): pressing 資訊 again hides every information control and keeps More open")
+	_f28_press_info_toggle(aquarium)
+	(aquarium.get_node("%DetailButton") as Button).pressed.emit()
+	var detail_open: bool = bool(aquarium.get("pet_detail_open"))
+	var back_one: bool = bool(aquarium.call("_close_topmost_panel")) and not bool(aquarium.get("pet_detail_open")) and bool(aquarium.get("pet_info_open"))
+	var back_two: bool = bool(aquarium.call("_close_topmost_panel")) and _f28_info_fully_hidden(aquarium) and bool(aquarium.get("more_actions_open"))
+	var back_three: bool = bool(aquarium.call("_close_topmost_panel")) and not bool(aquarium.get("more_actions_open"))
+	_expect(detail_open and back_one and back_two and back_three, "G1-FIX-28 (2): Android Back/Escape closes detail, then information, then More, one level at a time")
+	actions["more"] = -999999.0
+	aquarium.set("last_action_time_by_name", actions)
+	more_button_f28.pressed.emit()
+	_f28_press_info_toggle(aquarium)
+	var opened_for_back_button: bool = bool(aquarium.get("pet_info_open"))
+	(aquarium.get_node("%BackToPrimaryButton") as Button).pressed.emit()
+	await get_tree().process_frame
+	_expect(opened_for_back_button and _f28_info_fully_hidden(aquarium) and not bool(aquarium.get("more_actions_open")), "G1-FIX-28 (2): the More 返回 button collapses both the information and the More menu")
+	actions["more"] = -999999.0
+	aquarium.set("last_action_time_by_name", actions)
+	more_button_f28.pressed.emit()
+	_f28_press_info_toggle(aquarium)
+	var blank_tap_close: InputEventScreenTouch = InputEventScreenTouch.new()
+	blank_tap_close.pressed = true
+	blank_tap_close.position = blank_point
+	var food_before_close: int = GameState.get_food_drops().size()
+	aquarium.call("_unhandled_input", blank_tap_close)
+	_expect(_f28_info_fully_hidden(aquarium) and GameState.get_food_drops().size() == food_before_close, "G1-FIX-28 (2): tapping blank water closes the information without dropping food")
+	var water_after: Rect2 = aquarium.get("active_water_rect")
+	var no_teleport: bool = water_before.is_equal_approx(water_after)
+	for pet_id in roster_ids:
+		no_teleport = no_teleport and (actors.get(pet_id) as Node2D).global_position.distance_to(positions_before[pet_id]) <= 24.0
+	_expect(no_teleport, "G1-FIX-28 (5): opening/closing information never changes the water area or teleports a pet")
+	# (3) no selected pet: the entry only asks the player to select one and opens nothing.
+	var saved_data: Dictionary = GameState.data.duplicate(true)
+	GameState.data["pets"] = {}
+	_f28_press_info_toggle(aquarium)
+	var no_pet_hint: String = str((aquarium.get_node("%MessageLabel") as Label).text)
+	var no_pet_ok: bool = no_pet_hint.contains("請先選擇寵物") and not bool(aquarium.get("pet_info_open")) and not panel.visible
+	GameState.data = saved_data
+	_expect(no_pet_ok, "G1-FIX-28 (3): with no selected pet 資訊 shows a select-a-pet hint and does not open a window")
+	# (4) restart: the open state is not persisted.
+	_f28_press_info_toggle(aquarium)
+	var open_before_restart: bool = bool(aquarium.get("pet_info_open"))
+	SaveManager.save_game()
+	var restarted: Control = aquarium_scene.instantiate() as Control
+	get_tree().root.add_child(restarted)
+	await get_tree().process_frame
+	await get_tree().process_frame
+	var restart_hidden: bool = not bool(restarted.get("pet_info_open")) and not (restarted.get_node("%InfoExpandedPanel") as Control).is_visible_in_tree() and not (restarted.get_node("%PetInfoButton") as Control).is_visible_in_tree() and not (restarted.get_node("%PetSummaryLabel") as Control).is_visible_in_tree()
+	var save_text: String = FileAccess.get_file_as_string(SaveManager.save_path)
+	restarted.queue_free()
+	await get_tree().process_frame
+	_expect(open_before_restart and restart_hidden and not save_text.contains("pet_info"), "G1-FIX-28 (4): a restarted Aquarium starts with information hidden and the open state is not saved")
+	# (5) closing leaves no residual click interceptor.
+	aquarium.call("_set_pet_info_open", false)
+	await get_tree().process_frame
+	var water_now: Rect2 = aquarium.get("active_water_rect")
+	var no_blocker: bool = _f28_info_fully_hidden(aquarium) and not bool(aquarium.call("_is_info_panel_opaque"))
+	if water_now.has_point(old_panel_rect.get_center()):
+		no_blocker = no_blocker and bool(aquarium.call("_is_visible_water_point", old_panel_rect.get_center()))
+	for blocker_name in ["%PetInfoButton", "%PetSummaryLabel", "%PetGrowthBar", "%InfoExpandedPanel"]:
+		no_blocker = no_blocker and (not (aquarium.get_node(blocker_name) as Control).is_visible_in_tree() or (aquarium.get_node(blocker_name) as Control).mouse_filter == Control.MOUSE_FILTER_IGNORE)
+	_expect(no_blocker, "G1-FIX-28 (5): after closing, neither the old summary nor the window leaves a click-intercepting area")
+	if bool(aquarium.get("more_actions_open")):
+		aquarium.call("_close_more_menu")
+	await get_tree().process_frame
+	if GameState.get_selected_pet_id() != selected_id:
+		GameState.set_selected_pet_id(selected_id)
 
 
 func _expect(condition: bool, label: String) -> void:

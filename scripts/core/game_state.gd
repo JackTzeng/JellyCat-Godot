@@ -252,6 +252,9 @@ func prepare_data(source: Dictionary) -> Dictionary:
 		drop["x"] = float(raw_x)
 		drop["y"] = float(raw_y)
 		drop["expires_at"] = float(raw_expiry)
+		if drop.has("kind"):
+			# Pearl/diamond marker (G2-B-1). Unknown or malformed kinds fall back to a plain coin; value is untouched.
+			drop["kind"] = str(drop["kind"]) if ["coin", "pearl", "diamond"].has(str(drop["kind"])) else "coin"
 		seen_coin_tokens[token_id] = true
 		var token_number: String = token_id.trim_prefix("coin_")
 		if token_number.is_valid_int():
@@ -478,7 +481,8 @@ func resolve_food_drop_with_coin(
 	pet_data: Dictionary,
 	coin_value: int,
 	coin_position: Vector2,
-	coin_expires_at: float
+	coin_expires_at: float,
+	coin_kind: String = "coin"
 ) -> Dictionary:
 	if food_token_id.is_empty() or pet_id.is_empty() or pet_data.is_empty() or coin_value <= 0:
 		return {}
@@ -507,7 +511,8 @@ func resolve_food_drop_with_coin(
 		"y": coin_position.y,
 		"expires_at": maxf(coin_expires_at, Time.get_unix_time_from_system() + 1.0),
 		"source": "meal",
-		"food_token_id": food_token_id
+		"food_token_id": food_token_id,
+		"kind": coin_kind if ["coin", "pearl", "diamond"].has(coin_kind) else "coin"
 	}
 	var pets: Dictionary = data["pets"] as Dictionary
 	pets[pet_id] = _normalize_pet(pet_id, pet_data)

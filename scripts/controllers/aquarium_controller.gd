@@ -56,6 +56,7 @@ const FOOD_PELLET_TEXTURE: Texture2D = preload("res://assets/food/pellet_32.png"
 @onready var pet_summary_label: Label = %PetSummaryLabel
 @onready var pet_growth_bar: ProgressBar = %PetGrowthBar
 @onready var back_to_primary_button: Button = %BackToPrimaryButton
+@onready var info_toggle_button: Button = %InfoToggleButton
 @onready var rename_button: Button = %RenameButton
 @onready var info_actions: HBoxContainer = %InfoActions
 @onready var detail_button: Button = %DetailButton
@@ -115,10 +116,11 @@ func _ready() -> void:
 	%ShopButton.pressed.connect(_on_shop_pressed)
 	log_toggle_button.pressed.connect(_on_log_toggle_pressed)
 	more_button.pressed.connect(_on_more_pressed)
-	pet_info_button.pressed.connect(_on_pet_info_toggle_pressed)
+	# G1-FIX-28: the always-visible summary bar is gone; information is only opened from More -> 資訊.
+	info_toggle_button.pressed.connect(_on_pet_info_toggle_pressed)
 	detail_button.pressed.connect(_set_pet_detail_open.bind(true))
 	detail_back_button.pressed.connect(_set_pet_detail_open.bind(false))
-	back_to_primary_button.pressed.connect(_close_more_menu)
+	back_to_primary_button.pressed.connect(_on_more_back_pressed)
 	runtime_log_panel.get_node("Main/TitleBar/CloseLogButton").pressed.connect(_close_topmost_panel)
 	log_toggle_button.visible = OS.is_debug_build()
 	runtime_log_panel.visible = false
@@ -340,7 +342,18 @@ func _sync_modal_input_shield() -> void:
 func _on_pet_info_toggle_pressed() -> void:
 	if not world_actions_enabled or not _accept_action("pet_info"):
 		return
+	if not pet_info_open and GameState.get_pet(GameState.get_selected_pet_id()).is_empty():
+		_show_message("請先選擇寵物")
+		_update_pet_info_button()
+		return
 	_set_pet_info_open(not pet_info_open)
+
+
+func _on_more_back_pressed() -> void:
+	# 「返回」collapses the More menu and any information the player opened from it.
+	if pet_info_open:
+		_set_pet_info_open(false)
+	_close_more_menu()
 
 
 func _set_pet_info_open(should_open: bool) -> void:
@@ -368,7 +381,7 @@ func _set_pet_detail_open(should_open: bool) -> void:
 
 func _set_pet_info_widgets_visible(should_show: bool) -> void:
 	coin_label.visible = true
-	pet_info_button.visible = true
+	pet_info_button.visible = false
 	var detail_page: bool = should_show and pet_detail_open
 	var compact_page: bool = should_show and not pet_detail_open
 	info_grid.visible = compact_page
@@ -378,7 +391,7 @@ func _set_pet_info_widgets_visible(should_show: bool) -> void:
 	detail_button.visible = compact_page
 	rename_button.visible = detail_page
 	detail_back_button.visible = detail_page
-	pet_growth_bar.visible = not should_show
+	pet_growth_bar.visible = false
 	for compact_control in [
 		stage_label,
 		health_label,
@@ -403,8 +416,9 @@ func _set_pet_info_widgets_visible(should_show: bool) -> void:
 
 
 func _update_pet_info_button() -> void:
-	pet_info_button.button_pressed = pet_info_open
-	pet_info_button.tooltip_text = "點擊收起寵物資料" if pet_info_open else "點擊展開寵物資料"
+	pet_info_button.visible = false
+	info_toggle_button.set_pressed_no_signal(pet_info_open)
+	info_toggle_button.tooltip_text = "收起寵物資料" if pet_info_open else "顯示選中寵物的資料"
 
 
 func _on_log_toggle_pressed() -> void:
@@ -583,9 +597,30 @@ func _add_coin_bubble(drop: Dictionary) -> void:
 	visual_drop["x"] = coin_position.x
 	visual_drop["y"] = coin_position.y
 	bubble.call("configure", visual_drop)
+	# TEMPORARY placeholder art (G2-B-1): coin sprite tinted per kind until Jack approves final pearl/diamond art.
+	bubble.modulate = _coin_kind_tint(str(drop.get("kind", "coin")))
+	bubble.set_meta("coin_kind", CoinDropSystem.normalize_kind(drop.get("kind", "coin")))
 	bubble.connect("collected", Callable(self, "_on_coin_bubble_collected"))
 	coin_bubble_container.add_child(bubble)
 	coin_bubbles_by_id[token_id] = bubble
+
+
+func _coin_kind_tint(kind: String) -> Color:
+	match CoinDropSystem.normalize_kind(kind):
+		CoinDropSystem.KIND_PEARL:
+			return Color(1.0, 0.88, 0.96)
+		CoinDropSystem.KIND_DIAMOND:
+			return Color(0.62, 0.88, 1.0)
+	return Color.WHITE
+
+
+func _coin_kind_label(kind: String) -> String:
+	match CoinDropSystem.normalize_kind(kind):
+		CoinDropSystem.KIND_PEARL:
+			return "珍珠"
+		CoinDropSystem.KIND_DIAMOND:
+			return "鑽石"
+	return "泡泡幣"
 
 
 func _on_coin_bubble_collected(token_id: String, value: int, auto_collected: bool, source_pet_id: String) -> void:
@@ -596,7 +631,7 @@ func _on_coin_bubble_collected(token_id: String, value: int, auto_collected: boo
 		if bubble != null:
 			bubble.call("discard")
 		return
-	_show_message("泡泡幣 +%d · %s" % [value, str(GameState.get_pet(source_pet_id).get("nickname", "水母喵"))])
+	_show_message("%s +%d · %s" % [_coin_kind_label(str(drop.get("kind", "coin"))), value, str(GameState.get_pet(source_pet_id).get("nickname", "水母喵"))])
 	if shop_panel.visible:
 		shop_panel.call("refresh")
 	_refresh(false)
@@ -642,11 +677,11 @@ func _refresh(log_refresh: bool = false) -> void:
 	pet_name_label.text = nickname
 	gender_placeholder_label.text = "性別：—"
 	stage_label.text = "階段 %d · %s" % [int(jellycat.get("stage", 1)), str(stage_data.get("name", ""))]
-	pet_summary_label.text = nickname if pet_info_open else "%s｜階段 %d｜飢餓 %d｜心情 %d" % [nickname, int(jellycat.get("stage", 1)), hunger_value, mood_value]
+	pet_summary_label.text = nickname
 	pet_growth_bar.max_value = next_growth_exp
 	pet_growth_bar.value = minf(float(growth_exp), float(next_growth_exp))
 	pet_growth_bar.tooltip_text = "成長經驗：%d／%d" % [growth_exp, next_growth_exp]
-	pet_growth_bar.visible = not pet_info_open
+	pet_growth_bar.visible = false
 	hunger_label.text = "飢餓：%d / 100" % hunger_value
 	mood_label.text = "心情：%d / 100" % mood_value
 	cleanliness_label.text = "清潔度：%d / 100" % cleanliness_value
@@ -1022,7 +1057,7 @@ func _layout_ui(viewport_size: Vector2, safe_rect: Rect2, touch_target_override:
 	var info_left: float = safe_left + margin
 	var info_width: float = maxf(touch_target, right_x - margin - info_left)
 	var info_rect: Rect2 = Rect2(Vector2(info_left, action_rect.position.y), Vector2(info_width, action_height))
-	_place_control(pet_info_button, info_rect)
+	_place_control(pet_info_button, Rect2(info_rect.position, Vector2.ZERO))
 	var message_top: float = maxf(pet_roster_backdrop.position.y + pet_roster_backdrop.size.y, inventory_rect.end.y) + 8.0
 	_place_control(message_label, Rect2(Vector2(safe_left + margin, message_top), Vector2(maxf(1.0, safe_width - margin * 2.0), 34.0)))
 	message_label.visible = true
@@ -1734,6 +1769,10 @@ func _close_topmost_panel() -> bool:
 		_close_rename_panel()
 	elif shop_panel.visible:
 		_set_shop_open(false)
+	elif pet_detail_open:
+		_set_pet_detail_open(false)
+	elif pet_info_open:
+		_set_pet_info_open(false)
 	elif more_actions_open:
 		_close_more_menu()
 	elif runtime_log_panel.visible:
@@ -1741,10 +1780,6 @@ func _close_topmost_panel() -> bool:
 		_sync_modal_input_shield()
 		_apply_responsive_layout()
 		_refresh(false)
-	elif pet_detail_open:
-		_set_pet_detail_open(false)
-	elif pet_info_open:
-		_set_pet_info_open(false)
 	else:
 		return false
 	return true
