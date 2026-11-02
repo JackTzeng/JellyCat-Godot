@@ -35,6 +35,9 @@ func _on_egg_pressed() -> void:
 	if route_pending or not is_inside_tree():
 		return
 	var egg_id: String = GameState.get_active_egg_id()
+	if not GameState.can_add_pet():
+		hint_label.text = "水族箱已滿。"
+		return
 	var egg: Dictionary = HatchSystem.tap_egg(egg_id)
 	if egg.is_empty():
 		hint_label.text = "目前沒有可孵化的蛋。"

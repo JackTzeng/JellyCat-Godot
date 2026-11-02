@@ -11,7 +11,7 @@ const FOOD_INTERACTION_SIZE: Vector2 = Vector2(32.0, 32.0)
 const FOOD_DISPLAY_SIZE: Vector2 = Vector2(64.0, 64.0)
 const FOOD_SUNK_CLEANUP_MSEC: int = 3000
 const FOOD_EAT_ANIMATION_SECONDS: float = 0.45
-const PET_SLOT_COUNT: int = 3
+const MIN_PET_ROSTER_SLOTS: int = 3
 const FOOD_PELLET_TEXTURE: Texture2D = preload("res://assets/food/pellet_32.png")
 
 @onready var coin_label: Label = %CoinLabel
@@ -42,6 +42,7 @@ const FOOD_PELLET_TEXTURE: Texture2D = preload("res://assets/food/pellet_32.png"
 @onready var more_items: GridContainer = %MoreItems
 @onready var more_button: Button = %MoreButton
 @onready var pet_roster: HBoxContainer = %PetRoster
+@onready var pet_roster_scroll: ScrollContainer = %PetRosterScroll
 @onready var pet_roster_backdrop: ColorRect = %PetRosterBackdrop
 @onready var bottom_hud: ColorRect = %BottomHUD
 @onready var info_expanded_panel: Panel = %InfoExpandedPanel
@@ -850,11 +851,15 @@ func _sync_pet_actors() -> void:
 
 
 func _refresh_pet_roster() -> void:
-	_ensure_pet_roster_slots()
 	var active_ids: Array[String] = GameState.get_active_pet_ids()
+	var roster_slot_count: int = maxi(MIN_PET_ROSTER_SLOTS, active_ids.size())
+	while roster_buttons_by_slot.size() > roster_slot_count:
+		var stale_button: Button = roster_buttons_by_slot.pop_back()
+		stale_button.queue_free()
+	_ensure_pet_roster_slots(roster_slot_count)
 	roster_buttons_by_id.clear()
 	var eggs_remaining: int = GameState.get_nursery_eggs().size()
-	for slot_index in range(PET_SLOT_COUNT):
+	for slot_index in range(roster_slot_count):
 		var button: Button = roster_buttons_by_slot[slot_index]
 		var label: Label = button.get_node("NameplateLabel") as Label
 		if slot_index < active_ids.size():
@@ -868,6 +873,15 @@ func _refresh_pet_roster() -> void:
 			button.disabled = false
 			button.button_pressed = pet_id == GameState.get_selected_pet_id()
 			roster_buttons_by_id[pet_id] = button
+			if pet_id == GameState.get_selected_pet_id():
+				var selected_left: float = float(slot_index) * (maxf(DOS_STYLE.get_touch_target_height(get_viewport_rect().size), 112.0) + 8.0)
+				var selected_right: float = selected_left + button.custom_minimum_size.x
+				var visible_left: float = pet_roster_scroll.scroll_horizontal
+				var visible_right: float = visible_left + pet_roster_scroll.size.x
+				if selected_left < visible_left:
+					pet_roster_scroll.scroll_horizontal = int(selected_left)
+				elif selected_right > visible_right:
+					pet_roster_scroll.scroll_horizontal = int(selected_right - pet_roster_scroll.size.x)
 		else:
 			label.text = "蛋　寵物 %d\n育嬰室" % (slot_index + 1) if eggs_remaining > 0 else "寵物 %d\n沒有蛋了" % (slot_index + 1)
 			button.tooltip_text = "點此進入育嬰室" if eggs_remaining > 0 else "沒有蛋了"
@@ -876,28 +890,27 @@ func _refresh_pet_roster() -> void:
 	_update_pet_info_button()
 
 
-func _ensure_pet_roster_slots() -> void:
-	while roster_buttons_by_slot.size() < PET_SLOT_COUNT:
+func _ensure_pet_roster_slots(target_count: int) -> void:
+	while roster_buttons_by_slot.size() < target_count:
 		var slot_index: int = roster_buttons_by_slot.size()
 		var button: Button = Button.new()
 		button.name = "PetSlot%d" % (slot_index + 1)
 		button.toggle_mode = true
-		button.custom_minimum_size = Vector2(0.0, 64.0)
-		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		button.custom_minimum_size = Vector2(56.0, 64.0)
 		button.pressed.connect(_on_pet_slot_pressed.bind(slot_index))
 		var label: Label = Label.new()
 		label.name = "NameplateLabel"
 		label.set_anchors_preset(Control.PRESET_FULL_RECT)
-		label.offset_left = 8.0
+		label.offset_left = 4.0
 		label.offset_top = 4.0
-		label.offset_right = -8.0
+		label.offset_right = -4.0
 		label.offset_bottom = -4.0
 		label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		label.clip_text = false
 		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		label.add_theme_font_size_override("font_size", 16)
+		label.add_theme_font_size_override("font_size", 14)
 		button.add_child(label)
 		pet_roster.add_child(button)
 		roster_buttons_by_slot.append(button)
@@ -1001,11 +1014,13 @@ func _layout_ui(viewport_size: Vector2, safe_rect: Rect2, touch_target_override:
 	var roster_right: float = inventory_x - margin
 	var roster_width: float = maxf(1.0, roster_right - roster_left)
 	var roster_height: float = maxf(row_height, minf(row_height + 8.0, safe_height * 0.18))
+	var roster_button_width: float = maxf(touch_target, 112.0)
 	for roster_button in roster_buttons_by_slot:
-		roster_button.custom_minimum_size = Vector2(maxf(touch_target, roster_width / float(PET_SLOT_COUNT)), row_height)
-		roster_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_place_control(pet_roster, Rect2(Vector2(roster_left, top_y), Vector2(roster_width, roster_height)))
-	_place_control(pet_roster_backdrop, Rect2(pet_roster.position - Vector2(8.0, 4.0), pet_roster.size + Vector2(16.0, 8.0)))
+		roster_button.custom_minimum_size = Vector2(roster_button_width, row_height)
+	_place_control(pet_roster_scroll, Rect2(Vector2(roster_left, top_y), Vector2(roster_width, roster_height)))
+	pet_roster.custom_minimum_size = Vector2(float(roster_buttons_by_slot.size()) * roster_button_width + maxf(0, roster_buttons_by_slot.size() - 1) * 8.0, roster_height)
+	pet_roster.size = pet_roster.custom_minimum_size
+	_place_control(pet_roster_backdrop, Rect2(pet_roster_scroll.position - Vector2(8.0, 4.0), pet_roster_scroll.size + Vector2(16.0, 8.0)))
 	var inventory_height: float = maxf(roster_height, touch_target * 0.75 + 42.0)
 	var inventory_rect: Rect2 = Rect2(Vector2(inventory_x, top_y), Vector2(inventory_width, inventory_height))
 	_place_control(inventory_backdrop, inventory_rect)

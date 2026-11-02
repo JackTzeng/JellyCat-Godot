@@ -55,7 +55,7 @@ func _check_scenes() -> void:
 
 func _check_three_pet_hatch_and_care() -> void:
 	GameState.reset_to_default()
-	_expect(int((GameState.get_aquarium()).get("capacity", 0)) == 3, "G1 new aquarium capacity starts at three")
+	_expect(int((GameState.get_aquarium()).get("capacity", 0)) == 24, "G2-B-2 new aquarium exposes the 24-pet technical capacity (starter eggs remain three)")
 	_expect(GameState.get_currency("bubble_coin") == 20, "New game starts with 20 bubble coins")
 	_expect(GameState.get_inventory_count("food_basic") == 5, "New game retains the legacy food_basic field default")
 	_expect(GameState.get_inventory_count("cookie_basic") == 3, "New game starts with three cookies")
@@ -417,7 +417,7 @@ func _seed_g2_simulation_pets(start_hunger: int, start_mood: int) -> Array[Strin
 	SaveManager.reset_save()
 	GameState.set_currency("bubble_coin", 0)
 	var aquarium: Dictionary = GameState.get_aquarium()
-	var pet_count: int = int(aquarium.get("capacity", 0))
+	var pet_count: int = 3 # G2 simulation intentionally models the legacy three-pet fixture; B-2 8/12-pet performance is tested separately.
 	var species_id: String = "normal_jellycat"
 	var species: Dictionary = GameApp.get_table("species").get(species_id, {}) as Dictionary
 	var evolution: Dictionary = GameApp.get_table("evolution").get(species_id, {}) as Dictionary

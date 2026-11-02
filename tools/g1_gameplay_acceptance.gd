@@ -328,7 +328,7 @@ func _run() -> void:
 	var first_nameplate_label: Label = first_nameplate.get_node_or_null("NameplateLabel") as Label if first_nameplate != null else null
 	var first_pet_name: String = str(GameState.get_pet(GameState.get_active_pet_ids()[0]).get("nickname", ""))
 	var first_slot_number: int = 1
-	_expect(roster_slots.size() == 3 and first_nameplate_label != null, "Aquarium creates three fixed pet-nameplate slots")
+	_expect(roster_slots.size() == maxi(3, GameState.get_active_pet_ids().size()) and first_nameplate_label != null, "Aquarium creates one data-driven pet-nameplate slot per active pet, with three starter placeholders")
 	_expect(first_nameplate_label != null and first_nameplate_label.text == "%s · 寵物 %d" % [first_pet_name, first_slot_number] and not first_nameplate_label.clip_text and first_nameplate.tooltip_text == first_nameplate_label.text, "Pet nameplate renders the full nickname and visible roster order without clipping")
 	var selected_actor_at_start: Node2D = actors.get(GameState.get_active_pet_ids()[0]) as Node2D
 	var first_selection_marker: Line2D = selected_actor_at_start.get_node_or_null("SelectedPetIndicator") as Line2D if selected_actor_at_start != null else null
@@ -653,15 +653,15 @@ func _run() -> void:
 		bodies_fit_20_9 = bodies_fit_20_9 and body_rect.end.x <= water_20_9.end.x and body_rect.end.y <= water_20_9.end.y
 	_expect(water_inside_safe_20_9 and bodies_fit_20_9, "20:9 active water and three actor bodies stay inside safe insets")
 	var simulated_action: Control = aquarium.get_node("%ActionScroll") as Control
-	var simulated_roster: Control = aquarium.get_node("%PetRoster") as Control
+	var simulated_roster: Control = aquarium.get_node("%PetRosterScroll") as Control
 	print("G1 layout 20:9 viewport=%s root=%s safe=%s action=%s roster=%s water=%s" % [str(Vector2(2400.0, 1080.0)), str(aquarium.size), str(safe_20_9), str(Rect2(simulated_action.position, simulated_action.size)), str(Rect2(simulated_roster.position, simulated_roster.size)), str(water_20_9)])
 	_expect(simulated_action.position.x >= 40.0 and simulated_action.position.y >= 24.0 and simulated_action.position.x + simulated_action.size.x <= 2360.0 and simulated_action.position.y + simulated_action.size.y <= 1056.0, "20:9 layout keeps the action bar inside simulated safe bounds")
-	_expect(simulated_roster.position.x >= 40.0 and simulated_roster.position.y >= 24.0 and simulated_roster.position.x + simulated_roster.size.x <= 2360.0, "20:9 layout keeps the pet roster inside simulated safe bounds")
+	_expect(_control_inside_safe(aquarium.get_node("%PetRosterScroll") as Control, safe_20_9), "20:9 layout keeps the pet roster viewport inside simulated safe bounds")
 	var viewport_19_5_9: Vector2 = Vector2(2340.0, 1080.0)
 	var safe_19_5_9: Rect2 = Rect2(Vector2(20.0, 24.0), Vector2(2300.0, 1032.0))
 	aquarium.call("_layout_ui", viewport_19_5_9, safe_19_5_9)
 	var action_19_5_9: Control = aquarium.get_node("%ActionScroll") as Control
-	var roster_19_5_9: Control = aquarium.get_node("%PetRoster") as Control
+	var roster_19_5_9: Control = aquarium.get_node("%PetRosterScroll") as Control
 	var action_19_5_9_safe: bool = action_19_5_9.position.x >= safe_19_5_9.position.x and action_19_5_9.position.y >= safe_19_5_9.position.y
 	action_19_5_9_safe = action_19_5_9_safe and action_19_5_9.position.x + action_19_5_9.size.x <= safe_19_5_9.end.x and action_19_5_9.position.y + action_19_5_9.size.y <= safe_19_5_9.end.y
 	var roster_19_5_9_safe: bool = roster_19_5_9.position.x >= safe_19_5_9.position.x and roster_19_5_9.position.y >= safe_19_5_9.position.y and roster_19_5_9.position.x + roster_19_5_9.size.x <= safe_19_5_9.end.x
@@ -834,7 +834,7 @@ func _run() -> void:
 		await get_tree().process_frame
 		layout_geometry_ok = layout_geometry_ok and _control_inside_safe(more_items_scroll, layout_safe)
 		layout_geometry_ok = layout_geometry_ok and more_items_scroll.get_global_rect().size.y >= touch_target
-		layout_geometry_ok = layout_geometry_ok and _control_inside_safe(aquarium.get_node("%PetRoster") as Control, layout_safe)
+		layout_geometry_ok = layout_geometry_ok and _control_inside_safe(aquarium.get_node("%PetRosterScroll") as Control, layout_safe)
 		layout_geometry_ok = layout_geometry_ok and _control_inside_safe(aquarium.get_node("%BottomHUD") as Control, layout_safe)
 		var scroll_rect: Rect2 = more_items_scroll.get_global_rect()
 		layout_geometry_ok = layout_geometry_ok and more_items.get_global_rect().position.y >= scroll_rect.position.y and more_items.get_global_rect().end.y <= scroll_rect.end.y
@@ -1029,13 +1029,18 @@ func _run() -> void:
 	aquarium.set("last_action_time_by_name", time_scale_action_times)
 	time_scale_button.pressed.emit()
 	var scale_now: float = Time.get_unix_time_from_system()
+	var new_food_at_60: Dictionary = FoodDropSystem.drop_food(Vector2.ZERO)
+	var new_food_lifetime_valid: bool = not new_food_at_60.is_empty() and absf(float(new_food_at_60.get("expires_at", 0.0)) - scale_now - float(GameApp.get_balance_value("food_drop_lifetime_seconds", 45.0))) <= 0.5
+	if not new_food_at_60.is_empty():
+		GameState.resolve_food_drop(str(new_food_at_60.get("token_id", "")))
+		SaveManager.save_game()
 	var scale_drop: Dictionary = {}
 	for drop in GameState.get_food_drops():
 		if str(drop.get("token_id", "")) == scale_test_token:
 			scale_drop = drop
 			break
 	var scale_expiry_after: float = float(scale_drop.get("expires_at", 0.0))
-	var scaled_drop_lifetime_valid: bool = not scale_test_token.is_empty() and absf((scale_expiry_after - scale_now) - (scale_expiry_before - scale_now) / 60.0) <= 0.25
+	var food_deadline_preserved: bool = not scale_test_token.is_empty() and absf(scale_expiry_after - scale_expiry_before) <= 0.25
 	var time_scale_60_visible: bool = TimeManager.get_time_scale() == 60 and time_scale_button.text == "測試加速 ×60" and time_scale_indicator.visible and time_scale_indicator.text == "測試加速 ×60"
 	var time_scale_active_water: Rect2 = aquarium.get("active_water_rect")
 	var time_scale_indicator_in_corner: bool = time_scale_indicator.position.x >= time_scale_active_water.position.x and time_scale_indicator.position.x + time_scale_indicator.size.x <= time_scale_active_water.end.x
@@ -1044,11 +1049,16 @@ func _run() -> void:
 	time_scale_action_times["time_scale"] = -999999.0
 	aquarium.set("last_action_time_by_name", time_scale_action_times)
 	time_scale_button.pressed.emit()
+	var food_deadline_preserved_after_reverse: bool = false
+	for drop in GameState.get_food_drops():
+		if str(drop.get("token_id", "")) == scale_test_token:
+			food_deadline_preserved_after_reverse = absf(float(drop.get("expires_at", 0.0)) - scale_expiry_before) <= 0.25
+			break
 	var time_scale_1_visible: bool = TimeManager.get_time_scale() == 1 and time_scale_button.text == "測試加速 ×1" and not time_scale_indicator.visible
 	GameState.resolve_food_drop(scale_test_token)
 	SaveManager.save_game()
 	TimeManager.set_time_scale(1)
-	_expect(time_scale_controls_in_more and time_scale_60_visible and time_scale_1_visible and scaled_drop_lifetime_valid and time_scale_indicator_in_corner and scale_not_in_save, "The More-row ×1/×60 test control updates a corner indicator, rescales drop lifetime, and never serializes the multiplier")
+	_expect(time_scale_controls_in_more and time_scale_60_visible and time_scale_1_visible and food_deadline_preserved and food_deadline_preserved_after_reverse and new_food_lifetime_valid and time_scale_indicator_in_corner and scale_not_in_save, "The More-row ×1/×60 test control updates a corner indicator, creates food with 45 real seconds of life at ×60, preserves existing deadlines in both directions, and never serializes the multiplier")
 	(aquarium.get_node("%BackToPrimaryButton") as Button).pressed.emit()
 	aquarium.call("_set_pet_info_open", true)
 	var visible_water: Rect2 = aquarium.get("active_water_rect")
@@ -1989,6 +1999,8 @@ func _run() -> void:
 	print("G1 acceptance: auto coin settlement done")
 	await _run_g2_b1_checks(aquarium_scene, aquarium)
 	print("G1 acceptance: G2-B-1 meal pacing and pearl/diamond checks done")
+	await _run_g2_b2_roster_checks(aquarium_scene)
+	print("G1 acceptance: G2-B-2 roster checks done")
 	SaveManager.reset_save()
 	SaveManager.use_production_save_path()
 	if is_instance_valid(aquarium):
@@ -2016,6 +2028,104 @@ func _g2_expected_kind(roll: float) -> String:
 	if roll < diamond_chance + pearl_chance:
 		return "pearl"
 	return "coin"
+
+
+func _run_g2_b2_roster_checks(aquarium_scene: PackedScene) -> void:
+	var existing_ids: Array[String] = GameState.get_pet_ids()
+	var template: Dictionary = GameState.get_pet(existing_ids[0]) if not existing_ids.is_empty() else {
+		"pet_id": "g2b2_template",
+		"nickname": "水母喵 00",
+		"species_id": "normal_jellycat",
+		"personality_id": "curious",
+		"care_stats": {}
+	}
+	for save_count in range(4, 13):
+		GameState.reset_to_default()
+		for save_index in range(save_count):
+			var save_pet: Dictionary = template.duplicate(true)
+			save_pet["pet_id"] = "g2b2_save_%02d" % (save_index + 1)
+			save_pet["nickname"] = "存檔測試 %02d" % (save_index + 1)
+			save_pet["personality_id"] = "curious" if save_index % 2 == 0 else "sleepy"
+			_expect(GameState.add_pet(save_pet), "G2-B-2 save fixture accepts %d/%d pets" % [save_index + 1, save_count])
+		var expected_save_ids: Array[String] = GameState.get_active_pet_ids()
+		var saved: bool = SaveManager.save_game()
+		GameState.reset_to_default()
+		var loaded: bool = SaveManager.load_game()
+		var actual_save_ids: Array[String] = GameState.get_active_pet_ids()
+		var records_match: bool = loaded and actual_save_ids == expected_save_ids
+		for save_id in expected_save_ids:
+			var expected_record: Dictionary = template.duplicate(true)
+			var position: int = expected_save_ids.find(save_id)
+			expected_record["pet_id"] = save_id
+			expected_record["nickname"] = "存檔測試 %02d" % (position + 1)
+			expected_record["personality_id"] = "curious" if position % 2 == 0 else "sleepy"
+			var actual_record: Dictionary = GameState.get_pet(save_id)
+			records_match = records_match and actual_record.get("nickname") == expected_record["nickname"] and actual_record.get("personality_id") == expected_record["personality_id"]
+		_expect(saved and loaded and records_match, "G2-B-2 A5 save/load preserves all %d pet IDs, nicknames and personalities" % save_count)
+	GameState.reset_to_default()
+	print("G2-B-2 diagnostic: reset roster fixture")
+	var aquarium: Control = aquarium_scene.instantiate() as Control
+	get_tree().root.add_child(aquarium)
+	await get_tree().process_frame
+	var roster_scroll: ScrollContainer = aquarium.get_node("%PetRosterScroll") as ScrollContainer
+	var roster: Array[Button] = aquarium.get("roster_buttons_by_slot") as Array[Button]
+	for target_count in [4, 6, 8, 12]:
+		print("G2-B-2 diagnostic: starting target %d" % int(target_count))
+		while GameState.get_active_pet_ids().size() < int(target_count):
+			var index: int = GameState.get_active_pet_ids().size()
+			var extra: Dictionary = template.duplicate(true)
+			extra["pet_id"] = "g2b2_pet_%02d" % (index + 1)
+			extra["nickname"] = "水母喵 %02d" % (index + 1)
+			extra["personality_id"] = "curious"
+			var added: bool = GameState.add_pet(extra)
+			_expect(added, "G2-B-2 accepts pet %d above the old three-pet cap" % (index + 1))
+			if not added:
+				break
+		await get_tree().process_frame
+		roster = aquarium.get("roster_buttons_by_slot") as Array[Button]
+		_expect(GameState.get_active_pet_ids().size() == int(target_count) and roster.size() == int(target_count), "G2-B-2 creates %d active pets and nameplates" % int(target_count))
+		var all_names_unique: bool = true
+		for index in range(int(target_count)):
+			var nameplate: Label = roster[index].get_node("NameplateLabel") as Label
+			all_names_unique = all_names_unique and nameplate.text.contains("寵物 %d" % (index + 1)) and nameplate.size.x > 0.0 and nameplate.size.y > 0.0
+		_expect(all_names_unique, "G2-B-2 %d nameplates retain order and measurable label areas" % int(target_count))
+		var safe_cases: Array[Dictionary] = [
+			{"size": Vector2(1280, 720), "touch": 56.0},
+			{"size": Vector2(1280, 591), "touch": 112.0},
+			{"size": Vector2(1600, 720), "touch": 112.0},
+		]
+		for layout_case in safe_cases:
+			var viewport: Vector2 = layout_case["size"]
+			aquarium.call("_layout_ui", viewport, Rect2(Vector2.ZERO, viewport), float(layout_case["touch"]))
+			var clip: Rect2 = roster_scroll.get_global_rect()
+			_expect(clip.position.x >= 0.0 and clip.end.x <= viewport.x and clip.position.y >= 0.0 and clip.end.y <= viewport.y, "G2-B-2 %d nameplates stay in viewport %s" % [int(target_count), str(viewport)])
+			_expect(roster[0].custom_minimum_size.x >= 48.0 and roster[int(target_count) - 1].custom_minimum_size.x >= 48.0, "G2-B-2 %d nameplate touch targets are at least 48dp" % int(target_count))
+	var active_ids: Array[String] = GameState.get_active_pet_ids()
+	roster = aquarium.get("roster_buttons_by_slot") as Array[Button]
+	GameState.set_selected_pet_id(active_ids[11])
+	await get_tree().process_frame
+	_expect(bool(roster[11].button_pressed) and roster_scroll.scroll_horizontal > 0, "G2-B-2 selection marker remains in roster and selected nameplate is scrolled into view")
+	_expect(SaveManager.save_game(), "G2-B-2 saves 12 active pets")
+	_expect(SaveManager.load_game(), "G2-B-2 restores 12 active pets")
+	_expect(GameState.get_active_pet_ids().size() == 12, "G2-B-2 round-trip retains all 12 active pet IDs")
+	var technical_max: int = GameState.get_max_pets_technical()
+	var limit_pets: Array[String] = GameState.get_pet_ids()
+	while limit_pets.size() < technical_max:
+		var extra: Dictionary = template.duplicate(true)
+		extra["pet_id"] = "g2b2_limit_%02d" % (limit_pets.size() + 1)
+		extra["nickname"] = "上限測試 %02d" % (limit_pets.size() + 1)
+		extra["personality_id"] = "curious"
+		_expect(GameState.can_add_pet(), "G2-B-2 can_add_pet allows additions below the technical limit")
+		_expect(GameState.add_pet(extra), "G2-B-2 accepts pet %d below the technical limit" % (limit_pets.size() + 1))
+		limit_pets = GameState.get_pet_ids()
+	_expect(not GameState.can_add_pet(), "G2-B-2 can_add_pet rejects additions at the technical limit")
+	var over_limit: Dictionary = template.duplicate(true)
+	over_limit["pet_id"] = "g2b2_over_limit"
+	_expect(not GameState.add_pet(over_limit) and GameState.get_pet_ids().size() == technical_max, "G2-B-2 refuses pet creation above the technical limit without changing pet data")
+	GameState.reset_to_default()
+	aquarium.call("_refresh", false)
+	aquarium.queue_free()
+	await get_tree().process_frame
 
 
 func _run_g2_b1_checks(aquarium_scene: PackedScene, old_aquarium: Control) -> void:

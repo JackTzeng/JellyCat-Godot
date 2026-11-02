@@ -5,7 +5,7 @@ signal state_changed
 const SAVE_VERSION: String = "0.2.0"
 const SCHEMA_VERSION: int = 2
 const STARTER_CAPACITY: int = 3
-const MAX_PET_CAPACITY: int = 12
+const MAX_PET_CAPACITY: int = 24
 const STARTER_PERSONALITIES: Array[String] = ["curious", "affectionate", "sleepy"]
 
 var data: Dictionary = {}
@@ -25,7 +25,7 @@ func reset_to_default() -> void:
 		"aquarium": {
 			"active_pet_ids": [],
 			"selected_pet_id": "",
-			"capacity": STARTER_CAPACITY,
+			"capacity": MAX_PET_CAPACITY,
 			"cleanliness": 100,
 			"facilities": [],
 			"food_drops": [],
@@ -88,6 +88,8 @@ func prepare_data(source: Dictionary) -> Dictionary:
 			return {"ok": false, "reason": "invalid_%s" % str(key), "data": {}}
 	if next_data.has("pets"):
 		var source_pets: Dictionary = next_data["pets"] as Dictionary
+		if source_pets.size() > get_max_pets_technical():
+			return {"ok": false, "reason": "pet_technical_limit_exceeded", "data": {}}
 		for raw_pet_id in source_pets.keys():
 			if typeof(raw_pet_id) != TYPE_STRING or not (source_pets[raw_pet_id] is Dictionary):
 				return {"ok": false, "reason": "invalid_pet_record", "data": {}}
@@ -183,15 +185,15 @@ func prepare_data(source: Dictionary) -> Dictionary:
 	if requested_ids is Array:
 		for raw_id in requested_ids as Array:
 			var pet_id: String = str(raw_id)
-			if normalized_pets.has(pet_id) and not active_ids.has(pet_id) and active_ids.size() < int(aquarium.get("capacity", STARTER_CAPACITY)):
+			if normalized_pets.has(pet_id) and not active_ids.has(pet_id) and active_ids.size() < get_max_pets_technical():
 				active_ids.append(pet_id)
 	if active_ids.is_empty():
 		for pet_id in normalized_pets.keys():
-			if active_ids.size() >= int(aquarium.get("capacity", STARTER_CAPACITY)):
+			if active_ids.size() >= get_max_pets_technical():
 				break
 			active_ids.append(str(pet_id))
 	aquarium["active_pet_ids"] = active_ids
-	aquarium["capacity"] = clampi(int(aquarium.get("capacity", STARTER_CAPACITY)), 1, MAX_PET_CAPACITY)
+	aquarium["capacity"] = MAX_PET_CAPACITY
 	aquarium["cleanliness"] = clampi(int(aquarium.get("cleanliness", 100)), 0, 100)
 	var food_drops: Array[Dictionary] = []
 	var seen_food_tokens: Dictionary = {}
@@ -309,6 +311,15 @@ func get_pet_ids() -> Array[String]:
 	return ids
 
 
+func get_max_pets_technical() -> int:
+	return clampi(int(GameApp.get_balance_value("max_pets_technical", MAX_PET_CAPACITY)), 1, MAX_PET_CAPACITY)
+
+
+func can_add_pet() -> bool:
+	var pets: Dictionary = data.get("pets", {}) as Dictionary
+	return pets.size() < get_max_pets_technical()
+
+
 func get_active_pet_ids() -> Array[String]:
 	var ids: Array[String] = []
 	var aquarium: Dictionary = data.get("aquarium", {}) as Dictionary
@@ -348,7 +359,7 @@ func add_pet(pet_data: Dictionary) -> bool:
 	var pets: Dictionary = data.get("pets", {}) as Dictionary
 	var aquarium: Dictionary = data.get("aquarium", {}) as Dictionary
 	var personality_id: String = str(pet_data.get("personality_id", "curious"))
-	if pet_id.is_empty() or pet_id != pet_id.strip_edges() or pets.has(pet_id) or pets.size() >= int(aquarium.get("capacity", STARTER_CAPACITY)):
+	if pet_id.is_empty() or pet_id != pet_id.strip_edges() or pets.has(pet_id) or pets.size() >= get_max_pets_technical():
 		return false
 	if not GameApp.get_table("personalities").has(personality_id):
 		return false
@@ -683,7 +694,7 @@ func hatch_egg(egg_id: String, pet_data: Dictionary) -> bool:
 		return false
 	var pets: Dictionary = data["pets"] as Dictionary
 	var aquarium: Dictionary = data["aquarium"] as Dictionary
-	if pets.has(pet_id) or pets.size() >= int(aquarium.get("capacity", STARTER_CAPACITY)):
+	if pets.has(pet_id) or pets.size() >= get_max_pets_technical():
 		return false
 	var personality_id: String = str(pet_data.get("personality_id", "curious"))
 	var egg_personality_id: String = str(egg.get("personality_id", ""))
@@ -694,7 +705,7 @@ func hatch_egg(egg_id: String, pet_data: Dictionary) -> bool:
 	if str(pet_data.get("species_id", "")) != str(egg.get("species_id", "normal_jellycat")):
 		return false
 	var active_ids: Array[String] = get_active_pet_ids()
-	if active_ids.size() >= int(aquarium.get("capacity", STARTER_CAPACITY)):
+	if active_ids.size() >= get_max_pets_technical():
 		return false
 	var normalized_pet: Dictionary = pet_data.duplicate(true)
 	normalized_pet["pet_id"] = pet_id
