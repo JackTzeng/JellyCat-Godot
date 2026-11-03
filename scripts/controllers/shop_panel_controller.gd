@@ -1,8 +1,6 @@
 extends PanelContainer
 
 const VIEWPORT_REFERENCE := Vector2(1672.0, 941.0)
-const DECOR_IDS := ["decor_seaweed", "decor_stone", "decor_shell", "decor_lamp", "decor_castle"]
-const ITEM_IDS := ["food_basic", "medicine_basic", "partner_egg_jellycat", "decor_seaweed", "decor_stone", "decor_shell", "decor_lamp", "decor_castle"]
 const ICON_COLORS := [Color("#4c9b62"), Color("#5987bb"), Color("#d69b47"), Color("#55a57c"), Color("#888f9d"), Color("#dfaa72"), Color("#f0d36a"), Color("#bd7a56")]
 @onready var coin_label: Label = %ShopCoinLabel
 @onready var status_label: Label = %ShopStatusLabel
@@ -23,8 +21,14 @@ func _ready() -> void:
 	refresh()
 
 func _build_cards() -> void:
-	for index in ITEM_IDS.size():
-		var item_id: String = ITEM_IDS[index]
+	for child in card_grid.get_children():
+		child.queue_free()
+	cards.clear()
+	var item_ids := _listed_item_ids()
+	for index in item_ids.size():
+		var item_id: String = item_ids[index]
+		var item: Dictionary = GameApp.get_table("items").get(item_id, {})
+		var is_decor: bool = item.get("type", "") == "decor"
 		var card := PanelContainer.new()
 		card.name = "Card_" + item_id
 		card.custom_minimum_size = Vector2(0, 260)
@@ -34,7 +38,7 @@ func _build_cards() -> void:
 		column.add_theme_constant_override("separation", 8)
 		card.add_child(column)
 		var icon: Control
-		if item_id in DECOR_IDS:
+		if is_decor:
 			var texture_icon := TextureRect.new()
 			texture_icon.name = "Icon"
 			texture_icon.custom_minimum_size = Vector2(64, 64)
@@ -44,15 +48,25 @@ func _build_cards() -> void:
 			texture_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 			texture_icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			icon = texture_icon
+		elif item_id == "partner_egg_jellycat":
+			var texture_icon := TextureRect.new()
+			texture_icon.name = "Icon"
+			texture_icon.custom_minimum_size = Vector2(64, 64)
+			texture_icon.texture = load("res://assets/eggs/egg_idle_v2_64.png") as Texture2D
+			texture_icon.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+			texture_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+			texture_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+			texture_icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			icon = texture_icon
 		else:
 			var placeholder := ColorRect.new()
 			placeholder.name = "Icon"
 			placeholder.custom_minimum_size = Vector2(56, 56)
-			placeholder.color = ICON_COLORS[index]
+			placeholder.color = ICON_COLORS[index % ICON_COLORS.size()]
 			placeholder.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			icon = placeholder
 		column.add_child(icon)
-		if not item_id in DECOR_IDS:
+		if not is_decor and item_id != "partner_egg_jellycat":
 			var initial := Label.new()
 			initial.text = _initial_for(item_id)
 			initial.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -88,17 +102,43 @@ func _build_cards() -> void:
 		card_grid.add_child(card)
 		cards[item_id] = {"name": name_label, "detail": detail, "state": state, "button": button}
 
+func _listed_item_ids() -> Array[String]:
+	var listed: Array[String] = []
+	for item_id in GameApp.get_table("items"):
+		var item: Dictionary = GameApp.get_table("items")[item_id]
+		if item.get("shop_listed", false) and item.get("type", "") != "cookie":
+			listed.append(str(item_id))
+	listed.sort_custom(func(a: String, b: String) -> bool:
+		var order_a: int = int(GameApp.get_table("items")[a].get("shop_order", 2147483647))
+		var order_b: int = int(GameApp.get_table("items")[b].get("shop_order", 2147483647))
+		return order_a < order_b if order_a != order_b else a < b
+	)
+	return listed
+
 func refresh() -> void:
-	if not is_node_ready():
+	if not is_inside_tree() or not is_node_ready():
 		return
+	var item_ids := _listed_item_ids()
+	var card_ids: Array[String] = []
+	for existing_id in cards:
+		card_ids.append(str(existing_id))
+	card_ids.sort()
+	var expected_ids := item_ids.duplicate()
+	expected_ids.sort()
+	if card_ids != expected_ids:
+		_build_cards()
 	coin_label.text = "泡泡幣：%d" % GameState.get_currency("bubble_coin")
 	var minimum_height := button_min_height_for(DisplayServer.window_get_size(), DisplayServer.screen_get_dpi())
-	for item_id in ITEM_IDS:
+	for item_id in cards.keys():
+		if not item_ids.has(item_id):
+			cards.erase(item_id)
+	for item_id in item_ids:
 		var parts: Dictionary = cards[item_id]
 		var button: Button = parts.button
 		button.custom_minimum_size.y = minimum_height
 		var price := ShopSystem.get_item_price(item_id)
-		var owned: bool = item_id in DECOR_IDS and ShopSystem.is_decor_owned(item_id)
+		var item: Dictionary = GameApp.get_table("items").get(item_id, {})
+		var owned: bool = item.get("type", "") == "decor" and ShopSystem.is_decor_owned(item_id)
 		var unlimited: bool = item_id == "food_basic"
 		var at_limit: bool = item_id == "partner_egg_jellycat" and ShopSystem.is_partner_egg_at_limit()
 		var affordable: bool = unlimited or (price >= 0 and ShopSystem.can_buy(item_id))

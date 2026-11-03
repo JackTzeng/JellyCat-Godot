@@ -30,7 +30,8 @@ func _run() -> void:
 		var physical_px: float = min_height * minf(sizes[i].x / Vector2(1672, 941).x, sizes[i].y / Vector2(1672, 941).y)
 		_assert(physical_px * 160.0 / dpis[i] >= 48.0, "button >=48dp resolution %d" % i)
 	var buttons: Array = []
-	for item_id in shop.ITEM_IDS:
+	var ordered_ids: Array[String] = shop._listed_item_ids()
+	for item_id in ordered_ids:
 		buttons.append(shop.cards[item_id].button)
 	var target_size: Vector2 = buttons[0].custom_minimum_size
 	for button in buttons:

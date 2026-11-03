@@ -660,6 +660,8 @@ func _refresh_decor(viewport_size_override: Vector2 = Vector2.ZERO) -> void:
 			visual.queue_free()
 	decor_visuals.clear()
 	var owned := GameState.get_owned_decor()
+	if not is_inside_tree():
+		return
 	var viewport_size := viewport_size_override if viewport_size_override.x > 0.0 and viewport_size_override.y > 0.0 else get_viewport_rect().size
 	var decor_height := minf(viewport_size.y / 3.0, 96.0)
 	var slot_width := viewport_size.x / 5.0
@@ -680,7 +682,8 @@ func _refresh_decor(viewport_size_override: Vector2 = Vector2.ZERO) -> void:
 		var draw_size := source_size * scale_factor
 		visual.custom_minimum_size = draw_size
 		visual.size = draw_size
-		visual.position = Vector2(slot_width * slot + (slot_width - draw_size.x) * 0.5, viewport_size.y * 0.68 - draw_size.y)
+		var sand_line_y := active_water_rect.end.y
+		visual.position = Vector2(slot_width * slot + (slot_width - draw_size.x) * 0.5, sand_line_y - draw_size.y)
 		if item_id == "decor_seaweed" or item_id == "decor_lamp":
 			var anim_atlas := AtlasTexture.new()
 			anim_atlas.atlas = load(_decor_animation_path(item_id)) as Texture2D
@@ -704,7 +707,13 @@ func _decor_animation_path(item_id: String) -> String:
 	return "res://assets/decor/decor_lamp_glow_v1_64x96_2x.png"
 
 
+func _enter_tree() -> void:
+	call_deferred("_on_state_changed")
+
+
 func _on_state_changed() -> void:
+	if not is_inside_tree():
+		return
 	_sync_pet_actors()
 	_refresh_decor()
 	_refresh(false)
