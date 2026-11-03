@@ -2494,10 +2494,10 @@ func _run_ten_food_drop_cap_restart_cleanup(aquarium: Control) -> void:
 	var sink_update_started_msec: int = Time.get_ticks_msec()
 	aquarium.call("_update_food_drops", 60.0)
 	var sink_batch_update_msec: int = Time.get_ticks_msec() - sink_update_started_msec
-	var cleanup_wait: float = 0.0
-	while not GameState.get_food_drops().is_empty() and cleanup_wait < 4.0:
-		await get_tree().create_timer(0.1).timeout
-		cleanup_wait += 0.1
+	for drop in GameState.get_food_drops():
+		GameState.set_food_drop_expiration(str(drop.get("token_id", "")), Time.get_unix_time_from_system())
+	await get_tree().create_timer(0.02).timeout
+	aquarium.call("_update_food_drops", 0.0)
 	var sink_cleanup_ok: bool = GameState.get_food_drops().is_empty()
 	sink_cleanup_ok = sink_cleanup_ok and (aquarium.get("food_drop_visuals") as Dictionary).is_empty()
 	sink_cleanup_ok = sink_cleanup_ok and (aquarium.get("food_claims") as Dictionary).is_empty()
@@ -2508,7 +2508,7 @@ func _run_ten_food_drop_cap_restart_cleanup(aquarium: Control) -> void:
 		sink_cleanup_ok = sink_cleanup_ok and int(pet_after_sink.get("growth_exp", -1)) == int(pet_before_sink.get("growth_exp", -2))
 	_expect(sink_cleanup_ok, "All 10 sunk tokens clean from the ledger without a hunger or EXP reward")
 	_expect(GameState.get_inventory_count("food_basic") == inventory_before, "Ten-token save, settlement and sink cleanup preserve unlimited inventory")
-	print("G1 ten-food cleanup: accepted=%d elapsed=%.1fs update_ms=%d" % [sunk_tokens.size(), cleanup_wait, sink_batch_update_msec])
+	print("G1 ten-food cleanup: accepted=%d expiry_forced=true update_ms=%d" % [sunk_tokens.size(), sink_batch_update_msec])
 	for pet_id in pet_ids:
 		GameState.set_pet(pet_id, baseline_pets[pet_id])
 		var actor: Node2D = (aquarium.get("actors_by_id") as Dictionary).get(pet_id) as Node2D
@@ -2706,9 +2706,11 @@ func _run_sunk_food_decay_case(aquarium: Control, actor_anchor: Node2D, actors: 
 	_expect(full_pet_swims_to_food and full_pet_state == "full_food_refusal" and refusal_bubble_found and bubble_readable_over_actor, "Full pet swims to nearby food, keeps its complete 吃飽了 bubble head-relative, in bounds and above actor art")
 	if full_actor != null:
 		full_actor.position = original_full_actor_position
-	await get_tree().create_timer(3.2).timeout
-	_expect(not _food_ledger_has_token(token_id) and GameState.get_food_drops().is_empty(), "Sunk unattended food clears from the live ledger after a few seconds")
-	_expect(not (aquarium.get("food_drop_visuals") as Dictionary).has(token_id) and not (aquarium.get("food_claims") as Dictionary).has(token_id), "Sunk-token cleanup removes its marker and claim state")
+	GameState.set_food_drop_expiration(token_id, Time.get_unix_time_from_system())
+	await get_tree().create_timer(0.02).timeout
+	aquarium.call("_update_food_drops", 0.0)
+	_expect(not _food_ledger_has_token(token_id) and GameState.get_food_drops().is_empty(), "Sunk unattended food clears at its 45-second expiry deadline")
+	_expect(not (aquarium.get("food_drop_visuals") as Dictionary).has(token_id) and not (aquarium.get("food_claims") as Dictionary).has(token_id), "Expired-token cleanup removes its marker and claim state")
 	_expect(RuntimeLogger.get_log_text().contains("food expired/cleared %s" % token_id), "Expired or cleared food logs its token")
 	_expect(GameState.get_inventory_count("food_basic") == food_quantity_before, "Sunk-token cleanup does not refund or alter the legacy quantity")
 	for pet_id in pet_ids:
@@ -2757,6 +2759,10 @@ func _run_full_ten_food_feedback_case(aquarium: Control, actor_anchor: Node2D, a
 	var growth_before_by_pet: Dictionary = {}
 	for pet_id in pet_ids:
 		growth_before_by_pet[pet_id] = int(GameState.get_pet(pet_id).get("growth_exp", 0))
+	for feedback_child in (aquarium.get_node("%FeedbackContainer") as Control).get_children():
+		if feedback_child is Label and str((feedback_child as Label).text) == "吃飽了":
+			feedback_child.queue_free()
+	await get_tree().process_frame
 	var token_ids: Array[String] = []
 	for drop_index in range(GameState.get_max_active_food_drops()):
 		var drop_position: Vector2
@@ -2820,7 +2826,8 @@ func _run_full_ten_food_feedback_case(aquarium: Control, actor_anchor: Node2D, a
 		GameState.resolve_food_drop(token_id)
 	aquarium.call("_update_food_drops", 0.0)
 	for bubble in refusal_bubbles:
-		bubble.queue_free()
+		if is_instance_valid(bubble):
+			bubble.queue_free()
 	for pet_id in pet_ids:
 		GameState.set_pet(pet_id, baseline_pets[pet_id])
 		var actor: Node2D = actors.get(pet_id) as Node2D

@@ -43,18 +43,22 @@ func _run() -> void:
 	var drops: Dictionary = {}
 	var real_start := Time.get_ticks_msec()
 	print("G2 food60: water_rect=%s" % str(aquarium.get("active_water_rect")))
+	var test_water: Rect2 = aquarium.get("active_water_rect")
+	_check(test_water.has_area(), "aquarium exposes active water rectangle")
 	for wave in range(3):
 		print("G2 food60: wave %d feed" % (wave + 1))
 		for pet_index in range(pet_ids.size()):
 			var pet_id: String = pet_ids[pet_index]
-			var water: Rect2 = aquarium.get("active_water_rect")
+			var water: Rect2 = test_water
 			var position := Vector2(water.position.x + water.size.x * (0.2 + pet_index * 0.3), water.position.y + water.size.y * 0.25)
-			var now := Time.get_unix_time_from_system()
-			var drop: Dictionary = FoodDropSystem.drop_food(position)
+			print("G2 food60: dropping for pet=%s at=%s" % [pet_id, position])
+			var drop: Dictionary = aquarium.call("_drop_basic_food", position)
+			print("G2 food60: drop returned token=%s" % str(drop.get("token_id", "")))
 			var token: String = str(drop.get("token_id", ""))
 			if not token.is_empty():
 				tokens.append(token)
-				drops[token] = {"pet": pet_id, "drop": drop, "placed": now}
+				var placed_at := Time.get_unix_time_from_system()
+				drops[token] = {"pet": pet_id, "drop": drop, "placed": placed_at}
 			if tokens.size() == 1:
 				var before := float(drop.get("expires_at", 0.0))
 				TimeManager.set_time_scale(1)
@@ -65,12 +69,16 @@ func _run() -> void:
 						unchanged = absf(float(current.get("expires_at", 0.0)) - before) <= 0.25
 				_check(unchanged, "deadline preserved across x1 then x60")
 		var wave_start := Time.get_ticks_msec()
+		var progress_at := wave_start
 		while Time.get_ticks_msec() - wave_start < 60000:
 			await get_tree().process_frame
 			var remaining := 0
 			for token in tokens:
 				if GameState.get_food_drops().any(func(d): return str(d.get("token_id", "")) == token):
 					remaining += 1
+			if Time.get_ticks_msec() - progress_at >= 10000:
+				progress_at = Time.get_ticks_msec()
+				print("G2 food60: wave %d progress remaining=%d elapsed_real=%.3f" % [wave + 1, remaining, float(progress_at - wave_start) / 1000.0])
 			if remaining == 0:
 				break
 		print("G2 food60: wave %d settled; elapsed_real=%.3f" % [wave + 1, float(Time.get_ticks_msec() - wave_start) / 1000.0])
@@ -107,6 +115,35 @@ func _run() -> void:
 		print("G2 food60: token=%s life_real=%.3f" % [token, life])
 		_check(life >= 44.5, "food token %s lifetime >= 44.5 real seconds" % token)
 	print("G2 food60: elapsed_total_real=%.3f" % (float(Time.get_ticks_msec() - real_start) / 1000.0))
+	print("G2 food60: verify unattended sunk-token deadline")
+	for pet_id in pet_ids:
+		var full_pet: Dictionary = GameState.get_pet(pet_id)
+		full_pet["hunger"] = int(GameApp.get_balance_value("max_hunger"))
+		GameState.set_pet(pet_id, full_pet)
+		var actor: Node = (aquarium.get("actors_by_id") as Dictionary).get(pet_id)
+		if actor != null:
+			actor.call("refresh_pet")
+	var unattended_position: Vector2 = Vector2(test_water.position.x + test_water.size.x * 0.5, test_water.end.y - 30.0)
+	var unattended_drop: Dictionary = aquarium.call("_drop_basic_food", unattended_position)
+	var unattended_token: String = str(unattended_drop.get("token_id", ""))
+	_check(not unattended_token.is_empty(), "unattended expiry token created via production drop path")
+	var expiry_started := Time.get_ticks_msec()
+	while Time.get_ticks_msec() - expiry_started < 44500:
+		await get_tree().process_frame
+	var survived_445: bool = false
+	for current in GameState.get_food_drops():
+		if str(current.get("token_id", "")) == unattended_token:
+			survived_445 = true
+	_check(survived_445, "unattended sunk token survives at least 44.5 real seconds")
+	_check((aquarium.get("food_sunk_at_msec") as Dictionary).has(unattended_token), "unattended token reached aquarium floor before deadline")
+	while Time.get_ticks_msec() - expiry_started < 46500:
+		await get_tree().process_frame
+	aquarium.call("_update_food_drops", 0.0)
+	var removed_after_deadline: bool = true
+	for current in GameState.get_food_drops():
+		if str(current.get("token_id", "")) == unattended_token:
+			removed_after_deadline = false
+	_check(removed_after_deadline, "unattended token clears after 45-second real deadline")
 	TimeManager.set_time_scale(1)
 	aquarium.queue_free()
 	if failures == 0:

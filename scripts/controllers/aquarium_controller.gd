@@ -9,7 +9,6 @@ const WORLD_INPUT_PAIR_DEBOUNCE_MSEC: int = 250
 const LAYOUT_TRANSITION_SECONDS: float = 0.32
 const FOOD_INTERACTION_SIZE: Vector2 = Vector2(32.0, 32.0)
 const FOOD_DISPLAY_SIZE: Vector2 = Vector2(64.0, 64.0)
-const FOOD_SUNK_CLEANUP_MSEC: int = 3000
 const FOOD_EAT_ANIMATION_SECONDS: float = 0.45
 const MIN_PET_ROSTER_SLOTS: int = 3
 const FOOD_PELLET_TEXTURE: Texture2D = preload("res://assets/food/pellet_32.png")
@@ -1347,7 +1346,6 @@ func _update_food_drops(delta: float) -> void:
 	_expire_due_food_drops()
 	var drops: Array[Dictionary] = GameState.get_food_drops()
 	var drops_by_token: Dictionary = {}
-	var sunk_tokens_to_remove: Array[String] = []
 	var now_msec: int = Time.get_ticks_msec()
 	for drop in drops:
 		var token_id: String = str(drop.get("token_id", ""))
@@ -1378,8 +1376,6 @@ func _update_food_drops(delta: float) -> void:
 		if interaction_point.y >= floor_y - 0.5:
 			if not food_sunk_at_msec.has(token_id):
 				food_sunk_at_msec[token_id] = now_msec
-			elif now_msec - int(food_sunk_at_msec[token_id]) >= FOOD_SUNK_CLEANUP_MSEC:
-				sunk_tokens_to_remove.append(token_id)
 		else:
 			food_sunk_at_msec.erase(token_id)
 
@@ -1477,12 +1473,6 @@ func _update_food_drops(delta: float) -> void:
 				reactions[pet_id] = true
 				reacting_pet_ids[pet_id] = true
 		full_food_reactions_by_token[token_id] = reactions
-
-	for token_id in sunk_tokens_to_remove:
-		if GameState.resolve_food_drop(token_id):
-			SaveManager.save_game()
-			RuntimeLogger.log_info("food expired/cleared %s" % token_id)
-			_remove_food_token_visual(token_id)
 
 
 func _expire_due_food_drops() -> void:
