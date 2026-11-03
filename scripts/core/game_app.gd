@@ -2,6 +2,20 @@ extends Node
 
 var data_tables: Dictionary = {}
 var loaded: bool = false
+var online_care_elapsed_seconds: float = 0.0
+
+
+func _process(delta: float) -> void:
+	if not loaded:
+		return
+	online_care_elapsed_seconds += TimeManager.scale_delta(delta)
+	var seconds_per_minute: int = max(int(get_balance_value("seconds_per_minute")), 1)
+	var whole_ticks: int = int(floor(online_care_elapsed_seconds / float(seconds_per_minute)))
+	if whole_ticks <= 0:
+		return
+	var elapsed_ticks_seconds: int = whole_ticks * seconds_per_minute
+	online_care_elapsed_seconds -= float(elapsed_ticks_seconds)
+	load("res://scripts/systems/care_system.gd").apply_online_care_decay(elapsed_ticks_seconds)
 
 func boot() -> void:
 	RuntimeLogger.log_info("Game boot started")
@@ -14,10 +28,12 @@ func boot() -> void:
 	else:
 		RuntimeLogger.log_save("No save found")
 	var elapsed_seconds: int = int(TimeManager.seconds_since_datetime_string(GameState.get_timestamp("last_saved_at")))
-	CareSystem.apply_offline_care_decay(elapsed_seconds)
-	CurrencySystem.apply_offline_income(elapsed_seconds)
+	# Autoloads parse before class_name discovery on a fresh import. Resolve at boot.
+	load("res://scripts/systems/currency_system.gd").apply_offline_income(elapsed_seconds)
+	load("res://scripts/systems/care_system.gd").apply_offline_care_decay(elapsed_seconds)
 	GameState.set_timestamp("last_opened_at", TimeManager.now_string(), false)
 	GameState.set_timestamp("last_passive_coin_at", TimeManager.now_string(), false)
+	online_care_elapsed_seconds = 0.0
 	loaded = true
 
 
@@ -27,7 +43,8 @@ func load_data_tables() -> void:
 		"evolution": load_json_file("res://data/evolution.json"),
 		"items": load_json_file("res://data/items.json"),
 		"balance": load_json_file("res://data/balance.json"),
-		"version": load_json_file("res://data/version.json")
+		"version": load_json_file("res://data/version.json"),
+		"personalities": load_json_file("res://data/personalities.json")
 	}
 
 

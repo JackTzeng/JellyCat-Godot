@@ -12,7 +12,7 @@ func _ready() -> void:
 
 
 func refresh() -> void:
-	meta_label.text = "Version: %s    Scene: %s    Save: %s" % [
+	meta_label.text = "版本：%s　場景：%s　存檔：%s" % [
 		VersionManager.get_display_text(),
 		_scene_name(),
 		SaveManager.get_save_path()

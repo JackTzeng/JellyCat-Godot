@@ -1,0 +1,77 @@
+extends Node
+
+class_name FoodDropSystem
+
+
+static func drop_food(position: Vector2) -> Dictionary:
+	var lifetime: float = maxf(float(GameApp.get_balance_value("food_drop_lifetime_seconds", 45.0)), 1.0)
+	var drop: Dictionary = GameState.reserve_food_drop("food_basic", position, Time.get_unix_time_from_system() + lifetime)
+	if drop.is_empty():
+		return {}
+	if not SaveManager.save_game():
+		GameState.resolve_food_drop(str(drop.get("token_id", "")))
+		SaveManager.save_game()
+		return {}
+	return drop
+
+
+static func rescale_expiration_deadlines(previous_scale: int, new_scale: int) -> bool:
+	# Food expiration is measured in real seconds; changing gameplay speed must
+	# not alter an already-reserved token's absolute deadline.
+	return false
+
+
+static func consume_food(token_id: String, pet_id: String, coin_position: Vector2 = Vector2.ZERO) -> bool:
+	var drop: Dictionary = _get_drop(token_id)
+	if drop.is_empty() or float(drop.get("expires_at", 0.0)) <= Time.get_unix_time_from_system():
+		return false
+	var pet_data: Dictionary = CareSystem.build_fed_pet_data(pet_id, str(drop.get("item_id", "")))
+	if pet_data.is_empty():
+		return false
+	var normal_coin_value: int = get_normal_meal_coin_value(int(pet_data.get("stage", 1)))
+	var rolled: Dictionary = CoinDropSystem.roll_meal_coin(normal_coin_value)
+	var coin_value: int = int(rolled.get("value", normal_coin_value))
+	var coin_kind: String = str(rolled.get("kind", "coin"))
+	var coin_lifetime: float = maxf(float(GameApp.get_balance_value("coin_bubble_auto_collect_seconds")), 1.0)
+	var coin_drop: Dictionary = GameState.resolve_food_drop_with_coin(
+		token_id,
+		pet_id,
+		pet_data,
+		coin_value,
+		coin_position,
+		Time.get_unix_time_from_system() + coin_lifetime,
+		coin_kind
+	)
+	if coin_drop.is_empty():
+		return false
+	RuntimeLogger.log_info("%s from meal %s +%d by %s" % ["coin" if coin_kind == "coin" else coin_kind, token_id, coin_value, pet_id])
+	if not SaveManager.save_game():
+		push_warning("Food transaction resolved in memory, but the immediate save failed.")
+	return true
+
+
+static func get_normal_meal_coin_value(stage: int) -> int:
+	var bonus: int = 0
+	for decor in GameState.get_owned_decor():
+		var item: Variant = GameApp.get_table("items").get(str(decor.get("item_id", "")), {})
+		if item is Dictionary:
+			bonus += int(((item as Dictionary).get("effect", {}) as Dictionary).get("meal_coin_add", 0))
+	return int(GameApp.get_balance_value("meal_coin_base_value")) + stage + bonus
+
+
+static func expire_due_drops() -> int:
+	var now: float = Time.get_unix_time_from_system()
+	var expired: int = 0
+	for drop in GameState.get_food_drops():
+		if float(drop.get("expires_at", 0.0)) <= now and GameState.resolve_food_drop(str(drop.get("token_id", ""))):
+			expired += 1
+	if expired > 0:
+		SaveManager.save_game()
+	return expired
+
+
+static func _get_drop(token_id: String) -> Dictionary:
+	for drop in GameState.get_food_drops():
+		if str(drop.get("token_id", "")) == token_id:
+			return drop
+	return {}

@@ -2,26 +2,44 @@
   "food_basic": {
     "display_name": "基礎飼料",
     "type": "food",
+    "shop_listed": true,
+    "shop_order": 1,
     "price": 5,
     "purchasable": true,
-    "hunger_add": 30,
+    "hunger_add": 20,
     "mood_add": 2,
     "growth_exp_add": 5
   },
   "cookie_basic": {
     "display_name": "喵喵餅乾",
     "type": "cookie",
+    "shop_listed": false,
     "price": 8,
     "purchasable": true,
     "hunger_add": 5,
     "mood_add": 20,
-    "growth_exp_add": 3
+    "growth_exp_add": 30
   },
   "medicine_basic": {
     "display_name": "基礎藥水",
     "type": "medicine",
+    "shop_listed": true,
+    "shop_order": 2,
     "price": 20,
     "purchasable": true,
     "heal": true
-  }
+  },
+  "partner_egg_jellycat": {
+    "display_name": "水母喵夥伴蛋",
+    "type": "partner_egg",
+    "shop_listed": true,
+    "shop_order": 3,
+    "species_id": "normal_jellycat",
+    "purchasable": true
+  },
+  "decor_seaweed": {"display_name": "海草叢", "type": "decor", "shop_listed": true, "shop_order": 4, "price": 100, "purchasable": true, "one_time": true, "effect": {}},
+  "decor_stone": {"display_name": "小石頭", "type": "decor", "shop_listed": true, "shop_order": 5, "price": 100, "purchasable": true, "one_time": true, "effect": {}},
+  "decor_shell": {"display_name": "貝殼", "type": "decor", "shop_listed": true, "shop_order": 6, "price": 100, "purchasable": true, "one_time": true, "effect": {}},
+  "decor_lamp": {"display_name": "小燈", "type": "decor", "shop_listed": true, "shop_order": 7, "price": 100, "purchasable": true, "one_time": true, "effect": {"pearl_chance_add": 0.01}},
+  "decor_castle": {"display_name": "小城堡", "type": "decor", "shop_listed": true, "shop_order": 8, "price": 100, "purchasable": true, "one_time": true, "effect": {"meal_coin_add": 1}}
 }

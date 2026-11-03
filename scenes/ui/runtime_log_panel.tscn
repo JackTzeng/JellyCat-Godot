@@ -10,16 +10,25 @@ script = ExtResource("1_log")
 layout_mode = 2
 theme_override_constants/separation = 6
 
-[node name="Title" type="Label" parent="Main"]
+[node name="TitleBar" type="HBoxContainer" parent="Main"]
 layout_mode = 2
-text = "Runtime Log"
+
+[node name="Title" type="Label" parent="Main/TitleBar"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "執行日誌"
 horizontal_alignment = 1
 theme_override_font_sizes/font_size = 20
+
+[node name="CloseLogButton" type="Button" parent="Main/TitleBar"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "關閉"
 
 [node name="MetaLabel" type="Label" parent="Main"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "Version: v0.1.0    Scene: Aquarium    Save: user://save_game.json"
+text = "版本：v0.1.0　場景：水族箱　存檔：user://save_game.json"
 theme_override_font_sizes/font_size = 12
 
 [node name="LogText" type="RichTextLabel" parent="Main"]
@@ -37,14 +46,14 @@ theme_override_constants/separation = 8
 [node name="ClearButton" type="Button" parent="Main/Buttons"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "Clear Log"
+text = "清除日誌"
 
 [node name="CopyButton" type="Button" parent="Main/Buttons"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "Copy Log"
+text = "複製日誌"
 
 [node name="SaveButton" type="Button" parent="Main/Buttons"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "Save Log File"
+text = "儲存日誌檔"

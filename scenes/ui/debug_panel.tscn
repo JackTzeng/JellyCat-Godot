@@ -18,14 +18,14 @@ theme_override_constants/separation = 10
 
 [node name="Title" type="Label" parent="Main"]
 layout_mode = 2
-text = "Debug Panel"
+text = "除錯面板"
 horizontal_alignment = 1
 theme_override_font_sizes/font_size = 26
 
 [node name="InfoLabel" type="Label" parent="Main"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "debug"
+text = "除錯資訊"
 
 [node name="Buttons" type="GridContainer" parent="Main"]
 layout_mode = 2
@@ -36,39 +36,39 @@ theme_override_constants/v_separation = 8
 [node name="HungerButton" type="Button" parent="Main/Buttons"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "+10 hunger"
+text = "飢餓 +10"
 
 [node name="MoodButton" type="Button" parent="Main/Buttons"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "+10 mood"
+text = "心情 +10"
 
 [node name="ExpButton" type="Button" parent="Main/Buttons"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "+100 growth_exp"
+text = "成長經驗 +100"
 
 [node name="CoinButton" type="Button" parent="Main/Buttons"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "+100 bubble_coin"
+text = "泡泡幣 +100"
 
 [node name="EvolveButton" type="Button" parent="Main/Buttons"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "direct evolve"
+text = "直接進化"
 
 [node name="DayButton" type="Button" parent="Main/Buttons"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "simulate 1 day"
+text = "模擬 1 天"
 
 [node name="WeekButton" type="Button" parent="Main/Buttons"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "simulate 7 days"
+text = "模擬 7 天"
 
 [node name="ResetButton" type="Button" parent="Main/Buttons"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "reset save"
+text = "重設存檔"
