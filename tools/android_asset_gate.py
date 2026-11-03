@@ -28,7 +28,25 @@ ART_DOS_08_PNGS = (
     ("assets/nursery/nursery_card_bg_96x112.png", 567, "8a9540d1fe6301394553802a91d889274bcd1427b065b63bf91767d711e59737", (96, 112)),
     ("assets/nursery/nursery_slot_empty_96x112.png", 579, "eec036ad12a4aa4ecaecb41a5d6a4371e98165ea8d88ffba8b1cb2576beecb27", (96, 112)),
 )
-APPROVED_TEXTURE_PNGS = tuple((path, size, digest, (64, 64)) for path, size, digest in STAGE_PNGS) + ART_DOS_08_PNGS
+G2_C3_PNGS = (
+    ("assets/gems/gem_diamond_idle_v1_32x32_2x.png", 426, "b431a1190b4c0f4bbc13acbdf8f46c0a03b10edc1ff06f50bc9ef8def4815d99", (64, 32)),
+    ("assets/gems/gem_diamond_pickup_v1_32x32.png", 384, "9dcb001e96a6fe72347e2211890d11d5a0065f81fdba9dbf4f13f4a80c3a6eb5", (32, 32)),
+    ("assets/gems/gem_pearl_idle_v1_32x32_2x.png", 320, "768aea1fe81a2bddbca5668856b640ea07a10aeac848b92d0ceff77fd8243045", (64, 32)),
+    ("assets/gems/gem_pearl_pickup_v1_32x32.png", 285, "fac23d16608456a33cf620722a82b0308f9c49b78acaf725e66fae36c8222187", (32, 32)),
+    ("assets/decor/decor_castle_icon_v1_32x32.png", 389, "193ea788319431d0a60563004050d913eec34c61be40b5a222572d81e074e4a2", (32, 32)),
+    ("assets/decor/decor_castle_v1_96x96.png", 701, "d0ebbf5d6e68657c7a98d99feb706d4d45b7b8cce6339df0bb0b8ff3adf8fc43", (96, 96)),
+    ("assets/decor/decor_lamp_glow_v1_64x96_2x.png", 602, "83d258a591a80e4f41bfe4f8ba0a3c318f55d0e1e8014d5c09e6f499186b5c4b", (128, 96)),
+    ("assets/decor/decor_lamp_icon_v1_32x32.png", 315, "43f361a8f7141d5f934f7c3af4d3a9edc6a9c62ac8ed2bd246131cc693165eef", (32, 32)),
+    ("assets/decor/decor_lamp_v1_64x96.png", 455, "c2db003f446253d10ddba92dd4b12e979a81abc2b6faf42a1a6111067ab903ca", (64, 96)),
+    ("assets/decor/decor_seaweed_icon_v3_32x32.png", 248, "3b98eb4f4430af0e592eb8531365fea18e59a1eacc757674d930d39ef15c4a9b", (32, 32)),
+    ("assets/decor/decor_seaweed_sway_v3_64x96_2x.png", 929, "7733e16e1f5abe9418cc1814c1064ff142ad4f69e27849eac217e9f029cc2edd", (128, 96)),
+    ("assets/decor/decor_seaweed_v3_64x96.png", 629, "3555ae83ca4943181b624a75ade2fe827ecc5fef7c0ce6b9a6d974abee42a91f", (64, 96)),
+    ("assets/decor/decor_shell_icon_v1_32x32.png", 420, "df514fcbe6e9152cd635c35f0e2fd4525d693bb02403e991cf37004d1d786daf", (32, 32)),
+    ("assets/decor/decor_shell_v1_64x96.png", 745, "048d7c428b39afa1f610a1244bb15b9da99ee974527cfd28808003ae28646967", (64, 96)),
+    ("assets/decor/decor_stone_icon_v1_32x32.png", 382, "af982308feedcd785f2df62999641a154ce49ea5e8db4f4c50a9bba568a627e8", (32, 32)),
+    ("assets/decor/decor_stone_v1_64x96.png", 522, "9d41baa8ef63a7b602fd420f59279b147f4d4524718ded98616c32966248b0fa", (64, 96)),
+)
+APPROVED_TEXTURE_PNGS = tuple((path, size, digest, (64, 64)) for path, size, digest in STAGE_PNGS) + ART_DOS_08_PNGS + G2_C3_PNGS
 NATIVE_TANK = (
     "scripts/ui/native_tank.gd",
     3891,

@@ -3,10 +3,15 @@ extends Node
 class_name ShopSystem
 
 static var _last_partner_purchase_frame: int = -1
+static var _last_decor_purchase_frame: int = -1
 
 static func can_buy(item_id: String, quantity: int = 1) -> bool:
 	if item_id in ["food_basic", "cookie_basic"]:
 		return false
+	var item: Dictionary = _get_item(item_id)
+	if str(item.get("type", "")) == "decor":
+		if quantity != 1 or is_decor_owned(item_id) or GameState.get_owned_decor().size() >= int(GameApp.get_balance_value("decor_max_slots", 5)):
+			return false
 	var total_price: int = get_total_price(item_id, quantity)
 	if total_price < 0:
 		return false
@@ -32,6 +37,10 @@ static func buy_item(item_id: String, quantity: int = 1) -> bool:
 		return false
 	if _is_partner_egg(item_id):
 		return _buy_partner_egg(item_id)
+	if str(item.get("type", "")) == "decor":
+		if safe_quantity != 1:
+			return false
+		return _buy_decor(item_id)
 	var total_price: int = get_total_price(item_id, safe_quantity)
 	if total_price < 0:
 		RuntimeLogger.log_error("Buy item failed: invalid price %s" % item_id)
@@ -67,6 +76,23 @@ static func get_item_price(item_id: String) -> int:
 	if item.is_empty():
 		return -1
 	return int(item.get("price", -1))
+
+
+static func is_decor_owned(item_id: String) -> bool:
+	return GameState.is_decor_owned(item_id)
+
+
+static func _buy_decor(item_id: String) -> bool:
+	var current_frame: int = Engine.get_process_frames()
+	if current_frame == _last_decor_purchase_frame or not can_buy(item_id):
+		return false
+	var price: int = get_item_price(item_id)
+	if not GameState.purchase_decor(item_id, price):
+		return false
+	_last_decor_purchase_frame = current_frame
+	SaveManager.save_game()
+	RuntimeLogger.log_action("Buy decor: %s" % item_id)
+	return true
 
 
 static func get_total_price(item_id: String, quantity: int = 1) -> int:

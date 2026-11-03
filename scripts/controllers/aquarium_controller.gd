@@ -70,7 +70,9 @@ const FOOD_PELLET_TEXTURE: Texture2D = preload("res://assets/food/pellet_32.png"
 @onready var rename_cancel_button: Button = %RenameCancelButton
 @onready var time_scale_button: Button = %TimeScaleButton
 @onready var time_scale_indicator: Label = %TimeScaleIndicator
+@onready var decor_layer: Control = %DecorLayer
 
+var decor_visuals: Array[TextureRect] = []
 var passive_timer: float = 0.0
 var touch_cooldown: float = 0.0
 var touch_status_timer: float = 0.0
@@ -108,6 +110,7 @@ func _ready() -> void:
 	get_tree().quit_on_go_back = false
 	get_window().go_back_requested.connect(_on_android_go_back_requested)
 	GameState.state_changed.connect(_on_state_changed)
+	_refresh_decor()
 	%FeedButton.pressed.connect(_on_feed_pressed)
 	%TouchButton.pressed.connect(_on_touch_pressed)
 	%CleanButton.pressed.connect(_on_clean_pressed)
@@ -163,6 +166,12 @@ func _enable_world_actions() -> void:
 
 
 func _process(delta: float) -> void:
+	for visual in decor_visuals:
+		if is_instance_valid(visual) and visual.has_meta("anim_elapsed"):
+			var elapsed := float(visual.get_meta("anim_elapsed")) + delta
+			visual.set_meta("anim_elapsed", elapsed)
+			var frame_atlas := visual.texture as AtlasTexture
+			frame_atlas.region = Rect2(64.0 if fmod(elapsed, 1.2) >= 0.6 else 0.0, 0.0, 64.0, 96.0)
 	_update_food_drops(delta)
 	_apply_soft_actor_avoidance(delta)
 	_update_actor_panel_evasion()
@@ -597,21 +606,10 @@ func _add_coin_bubble(drop: Dictionary) -> void:
 	visual_drop["x"] = coin_position.x
 	visual_drop["y"] = coin_position.y
 	bubble.call("configure", visual_drop)
-	# TEMPORARY placeholder art (G2-B-1): coin sprite tinted per kind until Jack approves final pearl/diamond art.
-	bubble.modulate = _coin_kind_tint(str(drop.get("kind", "coin")))
 	bubble.set_meta("coin_kind", CoinDropSystem.normalize_kind(drop.get("kind", "coin")))
 	bubble.connect("collected", Callable(self, "_on_coin_bubble_collected"))
 	coin_bubble_container.add_child(bubble)
 	coin_bubbles_by_id[token_id] = bubble
-
-
-func _coin_kind_tint(kind: String) -> Color:
-	match CoinDropSystem.normalize_kind(kind):
-		CoinDropSystem.KIND_PEARL:
-			return Color(1.0, 0.88, 0.96)
-		CoinDropSystem.KIND_DIAMOND:
-			return Color(0.62, 0.88, 1.0)
-	return Color.WHITE
 
 
 func _coin_kind_label(kind: String) -> String:
@@ -654,8 +652,61 @@ func _show_message(text: String) -> void:
 	message_label.text = text
 
 
+func _refresh_decor(viewport_size_override: Vector2 = Vector2.ZERO) -> void:
+	if not is_instance_valid(decor_layer):
+		return
+	for visual in decor_visuals:
+		if is_instance_valid(visual):
+			visual.queue_free()
+	decor_visuals.clear()
+	var owned := GameState.get_owned_decor()
+	var viewport_size := viewport_size_override if viewport_size_override.x > 0.0 and viewport_size_override.y > 0.0 else get_viewport_rect().size
+	var decor_height := minf(viewport_size.y / 3.0, 96.0)
+	var slot_width := viewport_size.x / 5.0
+	for entry in owned:
+		var item_id := str(entry.get("item_id", ""))
+		var slot := clampi(int(entry.get("slot", decor_visuals.size())), 0, 4)
+		var visual := TextureRect.new()
+		visual.name = "Decor_" + item_id
+		visual.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		visual.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		visual.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		visual.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		var base_path := _decor_texture_path(item_id)
+		visual.texture = load(base_path) as Texture2D
+		var source_size := visual.texture.get_size() if visual.texture != null else Vector2(64, 96)
+		var target_height := minf(source_size.y, viewport_size.y / 3.0)
+		var scale_factor := maxf(1.0, floorf(target_height / source_size.y))
+		var draw_size := source_size * scale_factor
+		visual.custom_minimum_size = draw_size
+		visual.size = draw_size
+		visual.position = Vector2(slot_width * slot + (slot_width - draw_size.x) * 0.5, viewport_size.y * 0.68 - draw_size.y)
+		if item_id == "decor_seaweed" or item_id == "decor_lamp":
+			var anim_atlas := AtlasTexture.new()
+			anim_atlas.atlas = load(_decor_animation_path(item_id)) as Texture2D
+			anim_atlas.region = Rect2(Vector2.ZERO, source_size)
+			visual.texture = anim_atlas
+			visual.set_meta("anim_elapsed", 0.0)
+		decor_layer.add_child(visual)
+		decor_visuals.append(visual)
+
+func _decor_texture_path(item_id: String) -> String:
+	match item_id:
+		"decor_seaweed": return "res://assets/decor/decor_seaweed_v3_64x96.png"
+		"decor_stone": return "res://assets/decor/decor_stone_v1_64x96.png"
+		"decor_shell": return "res://assets/decor/decor_shell_v1_64x96.png"
+		"decor_lamp": return "res://assets/decor/decor_lamp_v1_64x96.png"
+		"decor_castle": return "res://assets/decor/decor_castle_v1_96x96.png"
+		_: return ""
+
+func _decor_animation_path(item_id: String) -> String:
+	if item_id == "decor_seaweed": return "res://assets/decor/decor_seaweed_sway_v3_64x96_2x.png"
+	return "res://assets/decor/decor_lamp_glow_v1_64x96_2x.png"
+
+
 func _on_state_changed() -> void:
 	_sync_pet_actors()
+	_refresh_decor()
 	_refresh(false)
 
 

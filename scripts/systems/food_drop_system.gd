@@ -28,7 +28,7 @@ static func consume_food(token_id: String, pet_id: String, coin_position: Vector
 	var pet_data: Dictionary = CareSystem.build_fed_pet_data(pet_id, str(drop.get("item_id", "")))
 	if pet_data.is_empty():
 		return false
-	var normal_coin_value: int = int(GameApp.get_balance_value("meal_coin_base_value")) + int(pet_data.get("stage", 1))
+	var normal_coin_value: int = get_normal_meal_coin_value(int(pet_data.get("stage", 1)))
 	var rolled: Dictionary = CoinDropSystem.roll_meal_coin(normal_coin_value)
 	var coin_value: int = int(rolled.get("value", normal_coin_value))
 	var coin_kind: String = str(rolled.get("kind", "coin"))
@@ -48,6 +48,15 @@ static func consume_food(token_id: String, pet_id: String, coin_position: Vector
 	if not SaveManager.save_game():
 		push_warning("Food transaction resolved in memory, but the immediate save failed.")
 	return true
+
+
+static func get_normal_meal_coin_value(stage: int) -> int:
+	var bonus: int = 0
+	for decor in GameState.get_owned_decor():
+		var item: Variant = GameApp.get_table("items").get(str(decor.get("item_id", "")), {})
+		if item is Dictionary:
+			bonus += int(((item as Dictionary).get("effect", {}) as Dictionary).get("meal_coin_add", 0))
+	return int(GameApp.get_balance_value("meal_coin_base_value")) + stage + bonus
 
 
 static func expire_due_drops() -> int:

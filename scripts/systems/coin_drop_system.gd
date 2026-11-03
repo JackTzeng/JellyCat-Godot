@@ -46,12 +46,21 @@ static func normalize_kind(kind: Variant) -> String:
 static func roll_meal_coin(normal_value: int, roll: float = -1.0) -> Dictionary:
 	var value: float = next_roll() if roll < 0.0 else roll
 	var diamond_chance: float = clampf(float(GameApp.get_balance_value("diamond_drop_chance", 0.0)), 0.0, 1.0)
-	var pearl_chance: float = clampf(float(GameApp.get_balance_value("pearl_drop_chance", 0.0)), 0.0, 1.0)
+	var pearl_chance: float = get_pearl_drop_chance()
 	if value < diamond_chance:
 		return {"kind": KIND_DIAMOND, "value": maxi(int(GameApp.get_balance_value("diamond_coin_value", 30)), 1)}
 	if value < diamond_chance + pearl_chance:
 		return {"kind": KIND_PEARL, "value": maxi(int(GameApp.get_balance_value("pearl_coin_value", 15)), 1)}
 	return {"kind": KIND_COIN, "value": normal_value}
+
+
+static func get_pearl_drop_chance() -> float:
+	var chance: float = float(GameApp.get_balance_value("pearl_drop_chance", 0.0))
+	for decor in GameState.get_owned_decor():
+		var item: Variant = GameApp.get_table("items").get(str(decor.get("item_id", "")), {})
+		if item is Dictionary:
+			chance += float(((item as Dictionary).get("effect", {}) as Dictionary).get("pearl_chance_add", 0.0))
+	return clampf(chance, 0.0, 1.0)
 
 
 static func can_spawn_coin_bubble(active_count: int) -> bool:

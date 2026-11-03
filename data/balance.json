@@ -33,6 +33,7 @@
   "diamond_coin_value": 30,
   "coin_bubble_auto_collect_seconds": 15,
   "max_pets_technical": 24,
+  "decor_max_slots": 5,
   "partner_egg_base_price": 100,
   "partner_egg_price_factor": 1.5,
   "partner_egg_price_start_count": 3,

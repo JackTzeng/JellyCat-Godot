@@ -22,6 +22,7 @@ sys.dont_write_bytecode = True
 from android_asset_gate import (
     APPROVED_TEXTURE_PNGS,
     ART_DOS_08_PNGS,
+    G2_C3_PNGS,
     NATIVE_TANK,
     STAGE_PNGS,
     verify_asset_sources,
@@ -126,13 +127,14 @@ class BuildGateTests(unittest.TestCase):
     def test_approved_assets_and_pck_gate_pass(self) -> None:
         self.assertEqual(len(STAGE_PNGS), 5)
         self.assertEqual(len(ART_DOS_08_PNGS), 8)
+        self.assertEqual(len(G2_C3_PNGS), 16)
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             self.create_asset_fixture(root)
             self.assertIsNone(verify_imports(root))
             error, imported = verify_asset_sources(root, require_cooked=False)
             self.assertIsNone(error)
-            self.assertEqual(len(imported), 13)
+            self.assertEqual(len(imported), 29)
 
             apk_path = root / "assets.apk"
             with zipfile.ZipFile(apk_path, "w") as apk:

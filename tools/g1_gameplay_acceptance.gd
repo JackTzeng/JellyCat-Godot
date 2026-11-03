@@ -2309,10 +2309,12 @@ func _run_g2_b1_checks(aquarium_scene: PackedScene, old_aquarium: Control) -> vo
 		await get_tree().process_frame
 		var restored_bubbles: Dictionary = restored_aquarium.get("coin_bubbles_by_id") as Dictionary
 		var restored_bubble: Button = restored_bubbles.get(case_token) as Button
-		var tint_ok: bool = is_instance_valid(restored_bubble) and str(restored_bubble.get_meta("coin_kind", "")) == case_kind
-		if tint_ok:
-			tint_ok = restored_bubble.modulate != Color.WHITE and restored_bubble.modulate.a == 1.0
-		_expect(tint_ok, "G2-B-1 (4) the restored %s bubble is shown beside the pet with a distinct placeholder tint" % case_kind)
+		var official_art_ok: bool = false
+		if is_instance_valid(restored_bubble):
+			var idle_art: TextureRect = restored_bubble.get_node("IdleArt") as TextureRect
+			var gem_atlas := idle_art.texture as AtlasTexture
+			official_art_ok = gem_atlas != null and gem_atlas.atlas.resource_path == "res://assets/gems/gem_%s_idle_v1_32x32_2x.png" % case_kind and gem_atlas.region.size == Vector2(32, 32)
+		_expect(official_art_ok, "G2-B-1 (4) the restored %s bubble uses its approved two-frame gem texture" % case_kind)
 		if is_instance_valid(restored_bubble):
 			restored_bubble.call("collect", false)
 		await get_tree().process_frame

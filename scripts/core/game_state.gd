@@ -24,6 +24,7 @@ func reset_to_default() -> void:
 		"pets": {},
 		"aquarium": {
 			"active_pet_ids": [],
+			"owned_decor": [],
 			"selected_pet_id": "",
 			"capacity": MAX_PET_CAPACITY,
 			"cleanliness": 100,
@@ -193,6 +194,24 @@ func prepare_data(source: Dictionary) -> Dictionary:
 				break
 			active_ids.append(str(pet_id))
 	aquarium["active_pet_ids"] = active_ids
+	var owned_decor: Array[Dictionary] = []
+	var seen_decor: Dictionary = {}
+	var decor_limit: int = clampi(int(GameApp.get_balance_value("decor_max_slots", 5)), 0, 5)
+	var raw_owned_decor: Variant = aquarium.get("owned_decor", [])
+	if raw_owned_decor is Array:
+		for raw_decor in raw_owned_decor as Array:
+			if not (raw_decor is Dictionary):
+				continue
+			var decor: Dictionary = raw_decor as Dictionary
+			var item_id: String = str(decor.get("item_id", ""))
+			var decor_item: Variant = GameApp.get_table("items").get(item_id, {})
+			if item_id.is_empty() or seen_decor.has(item_id) or not (decor_item is Dictionary) or str((decor_item as Dictionary).get("type", "")) != "decor":
+				continue
+			if owned_decor.size() >= decor_limit:
+				break
+			seen_decor[item_id] = true
+			owned_decor.append({"item_id": item_id, "slot": owned_decor.size(), "purchased_at": str(decor.get("purchased_at", ""))})
+	aquarium["owned_decor"] = owned_decor
 	aquarium["capacity"] = MAX_PET_CAPACITY
 	aquarium["cleanliness"] = clampi(int(aquarium.get("cleanliness", 100)), 0, 100)
 	var food_drops: Array[Dictionary] = []
@@ -675,6 +694,41 @@ func purchase_partner_egg(egg_data: Dictionary, price: int) -> bool:
 	return true
 
 
+func purchase_decor(item_id: String, price: int) -> bool:
+	if price < 0 or item_id.is_empty() or is_decor_owned(item_id) or get_owned_decor().size() >= clampi(int(GameApp.get_balance_value("decor_max_slots", 5)), 0, 5):
+		return false
+	var item: Variant = GameApp.get_table("items").get(item_id, {})
+	if not (item is Dictionary):
+		return false
+	var item_data: Dictionary = item as Dictionary
+	if str(item_data.get("type", "")) != "decor" or not bool(item_data.get("purchasable", false)) or not bool(item_data.get("one_time", false)) or price != int(item_data.get("price", -1)) or get_currency("bubble_coin") < price:
+		return false
+	var aquarium: Dictionary = data["aquarium"] as Dictionary
+	var owned: Array = aquarium.get("owned_decor", []) as Array
+	var currency: Dictionary = data["currency"] as Dictionary
+	currency["bubble_coin"] = int(currency.get("bubble_coin", 0)) - price
+	owned.append({"item_id": item_id, "slot": owned.size(), "purchased_at": Time.get_datetime_string_from_system()})
+	aquarium["owned_decor"] = owned
+	mark_changed(false)
+	return true
+
+
+func get_owned_decor() -> Array[Dictionary]:
+	var result: Array[Dictionary] = []
+	var aquarium: Dictionary = data.get("aquarium", {}) as Dictionary
+	for entry in aquarium.get("owned_decor", []) as Array:
+		if entry is Dictionary:
+			result.append((entry as Dictionary).duplicate(true))
+	return result
+
+
+func is_decor_owned(item_id: String) -> bool:
+	for entry in get_owned_decor():
+		if str(entry.get("item_id", "")) == item_id:
+			return true
+	return false
+
+
 func update_nursery_egg(egg_id: String, egg_data: Dictionary) -> bool:
 	var nursery: Dictionary = data["nursery"] as Dictionary
 	var eggs: Array = nursery.get("eggs", []) as Array
@@ -872,6 +926,8 @@ func _ensure_root_defaults(target: Dictionary) -> void:
 	var aquarium: Dictionary = target["aquarium"] as Dictionary
 	if not aquarium.has("active_pet_ids"):
 		aquarium["active_pet_ids"] = []
+	if not aquarium.has("owned_decor") or not (aquarium["owned_decor"] is Array):
+		aquarium["owned_decor"] = []
 	if not aquarium.has("selected_pet_id"):
 		aquarium["selected_pet_id"] = ""
 	if not aquarium.has("capacity"):
