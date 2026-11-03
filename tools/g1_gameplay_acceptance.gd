@@ -2757,12 +2757,25 @@ func _run_full_ten_food_feedback_case(aquarium: Control, actor_anchor: Node2D, a
 
 	var food_quantity_before: int = GameState.get_inventory_count("food_basic")
 	var growth_before_by_pet: Dictionary = {}
+	var feedback_container: Control = aquarium.get_node("%FeedbackContainer") as Control
 	for pet_id in pet_ids:
 		growth_before_by_pet[pet_id] = int(GameState.get_pet(pet_id).get("growth_exp", 0))
 	for feedback_child in (aquarium.get_node("%FeedbackContainer") as Control).get_children():
 		if feedback_child is Label and str((feedback_child as Label).text) == "吃飽了":
 			feedback_child.queue_free()
 	await get_tree().process_frame
+	var stale_bubble_wait: float = 0.0
+	var stale_refusal_bubbles: Array[Label] = []
+	while stale_bubble_wait < 3.0:
+		stale_refusal_bubbles.clear()
+		for feedback_child in feedback_container.get_children():
+			if feedback_child is Label and str((feedback_child as Label).text) == "吃飽了":
+				stale_refusal_bubbles.append(feedback_child as Label)
+		if stale_refusal_bubbles.is_empty():
+			break
+		await get_tree().create_timer(0.05).timeout
+		stale_bubble_wait += 0.05
+	_expect(stale_refusal_bubbles.is_empty(), "Prior-block refusal labels are fully freed before the ten-token feedback regression")
 	var token_ids: Array[String] = []
 	for drop_index in range(GameState.get_max_active_food_drops()):
 		var drop_position: Vector2
@@ -2783,7 +2796,6 @@ func _run_full_ten_food_feedback_case(aquarium: Control, actor_anchor: Node2D, a
 		if actor != null:
 			actor.position = actor.get("roam_target")
 			actor.call("_process", 0.05)
-	var feedback_container: Control = aquarium.get_node("%FeedbackContainer") as Control
 	var refusal_bubbles: Array[Label] = []
 	for feedback_child in feedback_container.get_children():
 		if feedback_child is Label and str((feedback_child as Label).text) == "吃飽了":
