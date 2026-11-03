@@ -7,6 +7,7 @@ func _ready() -> void:
 	GameState.state_changed.connect(refresh)
 	%BuyFoodButton.pressed.connect(_on_buy_food_pressed)
 	%BuyMedicineButton.pressed.connect(_on_buy_medicine_pressed)
+	%BuyPartnerEggButton.pressed.connect(_on_buy_partner_egg_pressed)
 	%CloseShopButton.pressed.connect(_on_close_pressed)
 	refresh()
 
@@ -17,6 +18,13 @@ func refresh() -> void:
 	%BuyFoodButton.disabled = true
 	%BuyFoodButton.text = "無限供應"
 	%MedicineInfoLabel.text = _item_line("medicine_basic")
+	%PartnerEggInfoLabel.text = _item_line("partner_egg_jellycat")
+	var egg_button: Button = %BuyPartnerEggButton
+	var at_limit: bool = ShopSystem.is_partner_egg_at_limit()
+	var egg_price: int = ShopSystem.get_item_price("partner_egg_jellycat")
+	egg_button.disabled = at_limit or not CurrencySystem.can_spend(egg_price)
+	egg_button.text = "已達上限" if at_limit else ("幣不足" if not CurrencySystem.can_spend(egg_price) else "購買夥伴蛋")
+	egg_button.custom_minimum_size.y = 56.0
 
 
 func _on_buy_food_pressed() -> void:
@@ -25,6 +33,10 @@ func _on_buy_food_pressed() -> void:
 
 func _on_buy_medicine_pressed() -> void:
 	_buy("medicine_basic")
+
+
+func _on_buy_partner_egg_pressed() -> void:
+	_buy("partner_egg_jellycat")
 
 
 func _on_close_pressed() -> void:
@@ -55,5 +67,7 @@ func _localized_item_name(item_id: String) -> String:
 			return "藥水"
 		"food_basic":
 			return "飼料"
+		"partner_egg_jellycat":
+			return "水母喵夥伴蛋"
 		_:
 			return "物品"

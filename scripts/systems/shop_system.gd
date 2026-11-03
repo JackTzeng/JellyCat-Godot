@@ -2,11 +2,15 @@ extends Node
 
 class_name ShopSystem
 
+static var _last_partner_purchase_frame: int = -1
+
 static func can_buy(item_id: String, quantity: int = 1) -> bool:
 	if item_id in ["food_basic", "cookie_basic"]:
 		return false
 	var total_price: int = get_total_price(item_id, quantity)
 	if total_price < 0:
+		return false
+	if _is_partner_egg(item_id) and is_partner_egg_at_limit():
 		return false
 	return CurrencySystem.can_spend(total_price)
 
@@ -26,6 +30,8 @@ static func buy_item(item_id: String, quantity: int = 1) -> bool:
 	if not bool(item.get("purchasable", false)):
 		RuntimeLogger.log_error("Buy item failed: not purchasable %s" % item_id)
 		return false
+	if _is_partner_egg(item_id):
+		return _buy_partner_egg(item_id)
 	var total_price: int = get_total_price(item_id, safe_quantity)
 	if total_price < 0:
 		RuntimeLogger.log_error("Buy item failed: invalid price %s" % item_id)
@@ -48,6 +54,15 @@ static func buy_item(item_id: String, quantity: int = 1) -> bool:
 
 
 static func get_item_price(item_id: String) -> int:
+	if _is_partner_egg(item_id):
+		var nursery: Dictionary = GameState.data.get("nursery", {}) as Dictionary
+		var count: int = GameState.get_pet_ids().size() + (nursery.get("eggs", []) as Array).size()
+		var start_count: int = maxi(3, int(GameApp.get_balance_value("partner_egg_price_start_count", 3)))
+		var base: float = maxf(float(GameApp.get_balance_value("partner_egg_base_price", 100)), 0.0)
+		var factor: float = maxf(float(GameApp.get_balance_value("partner_egg_price_factor", 1.5)), 1.0)
+		var increment: int = maxi(1, int(GameApp.get_balance_value("partner_egg_price_round_to", 5)))
+		var raw: float = base * pow(factor, maxi(count, start_count) - start_count)
+		return int(ceili(raw / float(increment))) * increment
 	var item: Dictionary = _get_item(item_id)
 	if item.is_empty():
 		return -1
@@ -66,3 +81,35 @@ static func _get_item(item_id: String) -> Dictionary:
 	if item is Dictionary:
 		return item as Dictionary
 	return {}
+
+
+static func _is_partner_egg(item_id: String) -> bool:
+	return str(_get_item(item_id).get("type", "")) == "partner_egg"
+
+
+static func is_partner_egg_at_limit() -> bool:
+	var nursery: Dictionary = GameState.data.get("nursery", {}) as Dictionary
+	var eggs: Array = nursery.get("eggs", []) as Array
+	return GameState.get_pet_ids().size() + eggs.size() >= GameState.get_max_pets_technical()
+
+
+static func _buy_partner_egg(item_id: String) -> bool:
+	var current_frame: int = Engine.get_process_frames()
+	if current_frame == _last_partner_purchase_frame:
+		return false
+	if is_partner_egg_at_limit():
+		return false
+	var item: Dictionary = _get_item(item_id)
+	var total_price: int = get_total_price(item_id)
+	if total_price < 0 or not CurrencySystem.can_spend(total_price):
+		return false
+	var egg_id: String = "egg_%03d" % (randi() % 900000 + 100000)
+	while not GameState.get_nursery_egg(egg_id).is_empty():
+		egg_id = "egg_%03d" % (randi() % 900000 + 100000)
+	var egg: Dictionary = {"egg_id": egg_id, "pet_id": "", "species_id": str(item.get("species_id", "normal_jellycat")), "personality_id": "curious", "source": "shop_partner_egg", "required_clicks": maxi(1, int(GameApp.get_balance_value("egg_required_clicks", 10))), "current_clicks": 0, "is_hatched": false}
+	if not GameState.purchase_partner_egg(egg, total_price):
+		return false
+	_last_partner_purchase_frame = current_frame
+	SaveManager.save_game()
+	RuntimeLogger.log_action("Buy partner egg: %s" % item_id)
+	return true

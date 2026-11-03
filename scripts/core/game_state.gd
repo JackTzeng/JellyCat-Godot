@@ -657,6 +657,24 @@ func add_nursery_egg(egg_data: Dictionary) -> bool:
 	return true
 
 
+func purchase_partner_egg(egg_data: Dictionary, price: int) -> bool:
+	var egg_id: String = str(egg_data.get("egg_id", ""))
+	if price < 0 or egg_id.is_empty() or egg_id != egg_id.strip_edges() or not get_nursery_egg(egg_id).is_empty() or not can_add_pet():
+		return false
+	if get_currency("bubble_coin") < price:
+		return false
+	var nursery: Dictionary = data["nursery"] as Dictionary
+	var eggs: Array = nursery.get("eggs", []) as Array
+	var currency: Dictionary = data["currency"] as Dictionary
+	currency["bubble_coin"] = int(currency.get("bubble_coin", 0)) - price
+	eggs.append(egg_data.duplicate(true))
+	nursery["eggs"] = eggs
+	if str(nursery.get("active_egg_id", "")).is_empty():
+		nursery["active_egg_id"] = egg_id
+	mark_changed(false)
+	return true
+
+
 func update_nursery_egg(egg_id: String, egg_data: Dictionary) -> bool:
 	var nursery: Dictionary = data["nursery"] as Dictionary
 	var eggs: Array = nursery.get("eggs", []) as Array

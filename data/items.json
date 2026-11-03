@@ -23,5 +23,11 @@
     "price": 20,
     "purchasable": true,
     "heal": true
+  },
+  "partner_egg_jellycat": {
+    "display_name": "水母喵夥伴蛋",
+    "type": "partner_egg",
+    "species_id": "normal_jellycat",
+    "purchasable": true
   }
 }
